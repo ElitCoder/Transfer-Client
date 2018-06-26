@@ -48,6 +48,10 @@ const vector<string>& Parameter::get(const string& option) {
 	
 	if (iterator == options_.end())
 		throw exception();
+	
+	// Avoid crashing on get's
+	if (iterator->second.empty())
+		iterator->second.push_back("");
 		
 	return iterator->second;
 }

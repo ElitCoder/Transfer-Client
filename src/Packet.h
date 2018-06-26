@@ -22,12 +22,14 @@ public:
     void addInt(const int nbr);
     void addFloat(const float nbr);
     void addBool(const bool val);
+    void addBytes(const std::vector<unsigned char>& bytes);
     
     unsigned char getByte();
     int getInt();
     float getFloat();
     std::string getString();
     bool getBool();
+    std::vector<unsigned char> getBytes();
     
     const unsigned char* getData() const;
     unsigned int getSize() const;
