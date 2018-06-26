@@ -11,3 +11,11 @@ Packet PacketCreator::join(const string& name) {
 	
 	return packet;
 }
+
+Packet PacketCreator::available() {
+	Packet packet;
+	packet.addHeader(HEADER_AVAILABLE);
+	packet.finalize();
+	
+	return packet;
+}

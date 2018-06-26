@@ -5,7 +5,8 @@
 #include <string>
 
 enum {
-	HEADER_JOIN
+	HEADER_JOIN,
+	HEADER_AVAILABLE
 };
 
 class Packet;
@@ -13,6 +14,7 @@ class Packet;
 class PacketCreator {
 public:
 	static Packet join(const std::string& name);
+	static Packet available();
 };
 
 #endif

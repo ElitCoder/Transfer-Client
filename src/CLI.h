@@ -11,6 +11,7 @@ public:
 	
 private:
 	void handleJoin();
+	void handleAvailable();
 	
 	Packet* packet_ = nullptr;
 };
