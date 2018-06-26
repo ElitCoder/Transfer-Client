@@ -182,8 +182,11 @@ void NetworkCommunication::completePacket() {
     incoming_packets_.pop_front();
 }
 
-void NetworkCommunication::send(const Packet& packet) {
-    lock_guard<mutex> guard(outgoing_mutex_);
+void NetworkCommunication::send(const Packet& packet, bool wait) {
+    unique_lock<mutex> lock(outgoing_mutex_);
+    
+    if (wait)
+        send_queue_cv_.wait(lock, [this] { return outgoing_packets_.size() < 10; });
     
     outgoing_packets_.push_back(packet);
     outgoing_cv_.notify_one();
@@ -241,4 +244,5 @@ void NetworkCommunication::popOutgoingPacket() {
     lock_guard<mutex> guard(outgoing_mutex_);
     
     outgoing_packets_.pop_front();
+    send_queue_cv_.notify_one();
 }

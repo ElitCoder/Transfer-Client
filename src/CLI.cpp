@@ -56,15 +56,32 @@ static void sendFiles(const string& to) {
 	
 	Log(DEBUG) << "File size " << size << " bytes\n";
 	
-	Log(DEBUG) << "Reading file..\n";
-	vector<unsigned char> data;
-	data.resize(size);
+	for (size_t i = 0; i < size;) {
+		int buffer_size = 4 * 1024 * 1024; // 4 MB
+		size_t read_amount = min(buffer_size, (int)(size - i));
+		
+		vector<unsigned char> data;
+		data.resize(read_amount);
+		
+		file_stream.read((char*)&data[0], read_amount);
+		
+		Log(DEBUG) << "Sending " << read_amount << " bytes, fp: " << i << "\n";
+
+		Base::network().send(PacketCreator::send(to, file, data, i == 0), true);
+		i += read_amount;
+		
+		answer = Base::cli().waitForAnswer();
+		accepted = answer.getBool();
+		
+		if (!accepted)
+			Log(WARNING) << "Something went wrong during file transfer\n";
+	}
 	
-	file_stream.read((char*)&data[0], size);
-	Log(DEBUG) << "Read " << size << " bytes\n";
-	file_stream.close();
+	// Tell the receiver that we're done
+	Base::network().send(PacketCreator::send(to, file, {}, false), true);
 	
-	Base::network().send(PacketCreator::send(to, file, data));
+	Log(DEBUG) << "Waiting for answer\n";
+	
 	answer = Base::cli().waitForAnswer();
 	accepted = answer.getBool();
 	
@@ -201,15 +218,59 @@ static string cleanFilename(string input, const string& delimiter) {
 
 void CLI::handleSend() {
 	// TODO: Receive file here
+	auto id = packet_->getInt();
 	auto file = packet_->getString();
 	auto bytes = packet_->getBytes();
+	auto first = packet_->getBool();
+	
+	if (bytes.empty()) {
+		Log(DEBUG) << "Removing from cache\n";
+		
+		// Remove from cache
+		auto iterator = file_streams_.find(file);
+		
+		if (iterator != file_streams_.end())
+			iterator->second->close();
+		
+		file_streams_.erase(file);
+	
+		// Send result that we're done
+		Base::network().send(PacketCreator::sendResult(id, true));
+		
+		return;
+	}
 	
 	// Strip file to only filename
 	file = cleanFilename(file, "/");
 	
-	ofstream file_stream(file, ios_base::binary);
+	shared_ptr<ofstream> file_stream;
 	
-	if (!file_stream.is_open()) {
+	if (first) {
+		// Remove any existing files
+		if (system(NULL)) {
+			string command = "rm -f " + file;
+			
+			if (system(command.c_str())) {}
+		} else {
+			Log(WARNING) << "Shell not available\n";
+		}
+		
+		shared_ptr<ofstream> stream_pointer = make_shared<ofstream>(file, ios::binary | ios::app);
+		
+		// Add file stream to cache
+		file_streams_[file] = stream_pointer;
+		//file_stream = stream_pointer;
+	}
+	
+	// Find stream in cache
+	auto iterator = file_streams_.find(file);
+	
+	if (iterator == file_streams_.end())
+		Log(WARNING) << "Could not find file stream\n";
+		
+	file_stream = iterator->second;
+		
+	if (!file_stream->is_open()) {
 		Log(WARNING) << "Could not open " << file << " for writing\n";
 		
 		return;
@@ -220,14 +281,19 @@ void CLI::handleSend() {
 	Log(DEBUG) << "Writing file " << bytes.size() << " bytes\n";
 	
 	const auto& data = bytes.data();
-	file_stream.write((const char*)&data[0], bytes.size());
+	file_stream->write((const char*)&data[0], bytes.size());
 	
 	Log(DEBUG) << "Wrote file\n";
 	
-	file_stream.close();
+	//file_stream->close();
+	
+	// Send OK to sender
+	Base::network().send(PacketCreator::sendResult(id, true));
 }
 
 void CLI::handleSendResult() {
+	Log(DEBUG) << "GOT SEND RESULT\n";
+	
 	lock_guard<mutex> lock(answer_mutex_);
 	answer_packet_ = make_shared<Packet>(*packet_);
 	answer_cv_.notify_one();

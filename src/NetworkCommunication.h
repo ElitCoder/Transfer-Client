@@ -22,7 +22,7 @@ public:
     void start(const std::string& hostname, unsigned short port);
     int getSocket() const;
     
-    void send(const Packet& packet);
+    void send(const Packet& packet, bool wait = false);
     
     void waitForPacket();
     Packet* getPacket();
@@ -53,6 +53,8 @@ private:
     std::mutex outgoing_mutex_;
     std::condition_variable outgoing_cv_;
     std::list<Packet> outgoing_packets_;
+    
+    std::condition_variable send_queue_cv_;
     
     std::list<PartialPacket> partial_packets_;
 };
