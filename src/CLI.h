@@ -2,14 +2,17 @@
 #ifndef CLI_H
 #define CLI_H
 
-#include <vector>
-#include <string>
+class Packet;
 
 class CLI {
 public:
-	void start(const std::vector<std::string>& files);
+	void start();
+	void process(Packet& packet);
 	
-private:	
+private:
+	void handleJoin();
+	
+	Packet* packet_ = nullptr;
 };
 
 #endif
