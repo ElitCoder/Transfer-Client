@@ -113,15 +113,24 @@ static void sendFile(const string& to, string file, string directory, string bas
 		// Allocate memory for reading data
 		auto& data = packet.internal();
 		auto old_size = data->size();
-		data->resize(data->size() + read_amount);
+		data->resize(data->size() + read_amount + 4);
 		
-		unsigned char* data_pointer = data->data() + data->size();
+		Log(DEBUG) << "Allocated from " << old_size << " to " << data->size() << endl;
+		
+		unsigned char* data_pointer = data->data() + old_size + 4;
 		
 		file_stream.read((char*)data_pointer, read_amount);
 		auto actually_read = file_stream.gcount();
 		
 		if (actually_read != (long)read_amount)
-			data->resize(old_size + actually_read);
+			data->resize(old_size + actually_read + 4);
+			
+		int nbr = actually_read;
+		
+		data->at(old_size) = (nbr >> 24) & 0xFF;
+	   	data->at(old_size + 1) = (nbr >> 16) & 0xFF;
+	    data->at(old_size + 2) = (nbr >> 8) & 0xFF;
+	    data->at(old_size + 3) = nbr & 0xFF;
 			
 		packet.addBool(i == 0);
 		packet.finalize();
@@ -287,8 +296,11 @@ void CLI::handleJoin() {
 	
 	if (result)
 		Log(INFORMATION) << "Accepted at Server\n";
-	else
+	else {
 		Log(WARNING) << "Server did not accept our connection\n";
+		
+		quick_exit(-1);
+	}
 }
 
 void CLI::handleAvailable() {
@@ -344,29 +356,47 @@ void CLI::handleSend() {
 	auto bytes = packet_->getBytes();
 	auto first = packet_->getBool();
 	
-	if (bytes.first == 0) {
-		Log(DEBUG) << "Removing from cache\n";
-		
-		// Remove from cache
-		auto iterator = file_streams_.find(file);
-		
-		if (iterator != file_streams_.end())
-			iterator->second->close();
-		
-		file_streams_.erase(file);
-	
-		// Send result that we're done
-		Base::network().send(PacketCreator::sendResult(id, true));
-		
-		return;
-	}
-	
 	// Add directory
 	file = directory + file;
 	
 	// Add folder ID if the option is enabled
 	if (Base::config().has("output_folder"))
 		file = Base::config().get<string>("output_folder", "") + "/" + file;
+		
+	if (bytes.first == 0) {
+		Log(DEBUG) << "Removing from cache\n";
+		
+		// Remove from cache
+		auto iterator = file_streams_.find(file);
+		
+		// Extra check
+		if (iterator != file_streams_.end()) {
+			if (iterator->second->fail())
+				Log(WARNING) << "Fail bit set\n";
+				
+			if (iterator->second->bad())
+				Log(WARNING) << "Bad bit set\n";
+				
+			if (iterator->second->eof())
+				Log(WARNING) << "Eof bit set\n";
+		}
+
+		// Send result that we're done before flushing
+		Base::network().send(PacketCreator::sendResult(id, true));
+
+		if (iterator != file_streams_.end()) {
+			Log(DEBUG) << "Flushing..\n";
+			
+			iterator->second->flush();
+			iterator->second->close();
+			
+			file_streams_.erase(file);
+			
+			Log(DEBUG) << "Done\n";
+		}
+		
+		return;
+	}
 	
 	shared_ptr<ofstream> file_stream;
 	
@@ -383,7 +413,7 @@ void CLI::handleSend() {
 		// Remove any existing files
 		remove(file.c_str());
 		
-		shared_ptr<ofstream> stream_pointer = make_shared<ofstream>(file, ios::binary | ios::app);
+		shared_ptr<ofstream> stream_pointer = make_shared<ofstream>(file, ios::binary);
 		
 		// Add file stream to cache
 		file_streams_[file] = stream_pointer;
@@ -415,7 +445,7 @@ void CLI::handleSend() {
 	Log(DEBUG) << "Writing file " << file << " with " << bytes.first << " bytes\n";
 	
 	file_stream->write((const char*)bytes.second, bytes.first);
-	file_stream->flush();
+	//file_stream->flush();
 	
 	// Send OK to sender
 	Base::network().send(PacketCreator::sendResult(id, true));
