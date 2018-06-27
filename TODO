@@ -1,0 +1,7 @@
+* inform receivers when a client disconnects
+* functionality to reconnect and continue file transfer
+* upnp for direct transfer (much faster)
+* recursive transfer
+* gui
+* automate building for different platforms
+* self-update
