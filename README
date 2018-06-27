@@ -1,0 +1,7 @@
+Transfer-Client - transfer files between computers without any network assumptions
+
+Building essentials:
+* A valid C++ compiler for the chosen OS, e.g Visual Studio for Windows and g++ for Linux
+
+Building:
+mkdir build; cd build; cmake .. && cmake --build . && cd ..
