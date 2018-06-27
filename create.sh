@@ -22,8 +22,10 @@ else
 	elif [ $1 = "run" ]; then
 		build
 		
+		echo $5
+		
 		cd bin/
-		./Transfer-Client ${@:2}
+		./Transfer-Client "${@:2}"
 		cd ../
 	fi
 fi

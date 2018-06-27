@@ -8,6 +8,7 @@
 #include "Timer.h"
 
 #include <fstream>
+#include <filesystem>
 
 using namespace std;
 
@@ -45,7 +46,7 @@ static void sendFiles(const string& to) {
 	// Send the file
 	ifstream file_stream(file, ios_base::binary);
 	
-	if (!file_stream.is_open()) {
+	if (!file_stream) {
 		Log(ERROR) << "The file " << file << " could not be opened\n";
 		
 		return;
@@ -67,11 +68,13 @@ static void sendFiles(const string& to) {
 		data.resize(read_amount);
 		
 		file_stream.read((char*)&data[0], read_amount);
+		auto actually_read = file_stream.gcount();
+		data.resize(actually_read);
 		
-		Log(DEBUG) << "Sending " << read_amount << " bytes, fp: " << i << "\n";
+		Log(DEBUG) << "Sending " << actually_read << " bytes, fp: " << i << "\n";
 
 		Base::network().send(PacketCreator::send(to, file, data, i == 0), true);
-		i += read_amount;
+		i += actually_read;
 		
 		answer = Base::cli().waitForAnswer();
 		accepted = answer.getBool();
@@ -262,27 +265,19 @@ void CLI::handleSend() {
 	shared_ptr<ofstream> file_stream;
 	
 	if (first) {
+		Log(DEBUG) << "Removing existing files and preparing stream\n";
+		
 		// Create folder if it does not exist
-		if (Base::config().has("output_folder")) {
-			string command = "mkdir -p " + Base::config().get<string>("output_folder", "");
-			
-			if (system(command.c_str())) {}
-		}
+		if (Base::config().has("output_folder"))
+			filesystem::create_directory(Base::config().get<string>("output_folder", ""));
 		
 		// Remove any existing files
-		if (system(NULL)) {
-			string command = "rm -f " + file;
-			
-			if (system(command.c_str())) {}
-		} else {
-			Log(WARNING) << "Shell not available\n";
-		}
+		remove(file.c_str());
 		
 		shared_ptr<ofstream> stream_pointer = make_shared<ofstream>(file, ios::binary | ios::app);
 		
 		// Add file stream to cache
 		file_streams_[file] = stream_pointer;
-		//file_stream = stream_pointer;
 	}
 	
 	// Find stream in cache
@@ -293,17 +288,27 @@ void CLI::handleSend() {
 		
 	file_stream = iterator->second;
 		
-	if (!file_stream->is_open()) {
+	if (!file_stream) {
 		Log(WARNING) << "Could not open " << file << " for writing\n";
 		
 		return;
 	}
 	
+	if (file_stream->fail())
+		Log(WARNING) << "Fail bit set\n";
+		
+	if (file_stream->bad())
+		Log(WARNING) << "Bad bit set\n";
+		
+	if (file_stream->eof())
+		Log(WARNING) << "Eof bit set\n";
+	
 	Log(DEBUG) << "Writing file " << file << " with " << bytes.size() << " bytes\n";
 	
 	const auto& data = bytes.data();
 	file_stream->write((const char*)&data[0], bytes.size());
-		
+	file_stream->flush();
+	
 	// Send OK to sender
 	Base::network().send(PacketCreator::sendResult(id, true));
 }
