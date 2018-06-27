@@ -23,20 +23,6 @@ static void monitoring() {
 	Log(INFORMATION) << "Registering at Server..\n";
 }
 
-#if 0
-static string cleanFilename(string input, const string& delimiter) {
-	size_t pos = 0;
-	string token;
-	
-	while ((pos = input.find(delimiter)) != string::npos) {
-	    token = input.substr(0, pos);
-	    input.erase(0, pos + delimiter.length());
-	}
-	
-	return input;
-}
-#endif
-
 static void splitBaseFile(string input, string& base, string& file) {
 	size_t pos = 0;
 	
@@ -174,84 +160,6 @@ static void sendFiles(const string& to) {
 		splitBaseFile(file_copy, base, file_copy);
 		
 		sendFile(to, file_copy, "", base);
-		
-		#if 0
-		// Is file a directory?
-		if (filesystem::is_directory(file)) {
-			Log(WARNING) << "Recursive sending is not available for now.\n";
-			
-			continue;
-		}
-		
-		// Inform target of file transfer
-		Base::network().send(PacketCreator::inform(to, file));
-		auto answer = Base::cli().waitForAnswer();
-		auto accepted = answer.getBool();
-		
-		if (!accepted) {
-			Log(ERROR) << "Receiving side did not accept the file transfer or is not connected\n";
-			
-			continue;
-		}
-		
-		// Send the file
-		ifstream file_stream(file, ios_base::binary);
-		
-		if (!file_stream) {
-			Log(ERROR) << "The file " << file << " could not be opened\n";
-			
-			continue;
-		}
-		
-		file_stream.seekg(0, ios_base::end);
-		size_t size = file_stream.tellg();
-		file_stream.seekg(0, ios_base::beg);
-		
-		Log(DEBUG) << "File size " << size << " bytes\n";
-		
-		Timer timer;
-		
-		for (size_t i = 0; i < size;) {
-			int buffer_size = 4 * 1024 * 1024; // 4 MB
-			size_t read_amount = min(buffer_size, (int)(size - i));
-			
-			vector<unsigned char> data;
-			data.resize(read_amount);
-			
-			file_stream.read((char*)&data[0], read_amount);
-			auto actually_read = file_stream.gcount();
-			data.resize(actually_read);
-			
-			Log(DEBUG) << "Sending " << actually_read << " bytes, fp: " << i << "\n";
-
-			Base::network().send(PacketCreator::send(to, file, data, i == 0), true);
-			i += actually_read;
-			
-			answer = Base::cli().waitForAnswer();
-			accepted = answer.getBool();
-			
-			if (!accepted)
-				Log(WARNING) << "Something went wrong during file transfer\n";
-		}
-		
-		// Tell the receiver that we're done
-		Base::network().send(PacketCreator::send(to, file, {}, false), true);
-		
-		Log(DEBUG) << "Waiting for answer\n";
-		
-		answer = Base::cli().waitForAnswer();
-		accepted = answer.getBool();
-		
-		auto elapsed_time = timer.restart();
-		
-		if (accepted)
-			Log(INFORMATION) << "File successfully sent\n";
-		else
-			Log(ERROR) << "File could not be sent\n";
-			
-		Log(DEBUG) << "Elapsed time: " << elapsed_time << " seconds\n";
-		Log(DEBUG) << "Speed: " << (static_cast<double>(size) / 1024 / 1024) / elapsed_time << " MB/s\n";
-		#endif
 	}
 }
 
@@ -387,6 +295,31 @@ void CLI::handleInform() {
 	notifyWaiting();
 }
 
+static vector<string> getTokens(string input, const string& delimiter) {
+	size_t pos = 0;
+	vector<string> tokens;
+	
+	while ((pos = input.find(delimiter)) != string::npos) {
+	    auto token = input.substr(0, pos);
+	    input.erase(0, pos + delimiter.length());
+		
+		tokens.push_back(token);
+	}
+	
+	return tokens;
+}
+
+static void create_directory_path(const string& path) {
+	auto folders = getTokens(path, "/");
+	string current_path = "";
+	
+	for (auto& folder : folders) {
+		current_path += folder + "/";
+		
+		filesystem::create_directory(current_path);
+	}
+}
+
 void CLI::handleSend() {
 	// TODO: Receive file here
 	auto id = packet_->getInt();
@@ -426,10 +359,10 @@ void CLI::handleSend() {
 		
 		// Create folder if it does not exist
 		if (Base::config().has("output_folder"))
-			filesystem::create_directory(Base::config().get<string>("output_folder", ""));
+			create_directory_path(Base::config().get<string>("output_folder", ""));
 		
 		// Create directory if it does not exist
-		filesystem::create_directory(Base::config().get<string>("output_folder", "") + "/" + directory);
+		create_directory_path(Base::config().get<string>("output_folder", "") + "/" + directory);
 		
 		// Remove any existing files
 		remove(file.c_str());
