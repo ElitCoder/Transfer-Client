@@ -5,25 +5,55 @@
 
 #include <cstring>
 #include <errno.h>
+#include <array>
+
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
 
 // Network
 #include <sys/types.h>
+#include <fcntl.h>
+
+#ifdef WIN32
+#include <Windows.h>
+#include <WinSock2.h>
+#else
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unistd.h>
 #include <netdb.h>
 #include <netinet/tcp.h>
-#include <fcntl.h>
+#endif
+
+#ifdef WIN32
+#pragma comment(lib, "Ws2_32.lib")
+#endif
 
 using namespace std;
 
 static void connect(const string& hostname, unsigned short port, int& server_socket) {
+#ifdef WIN32
+	WSADATA wsa_data;
+
+	if (WSAStartup(MAKEWORD(2, 2), &wsa_data) != 0) {
+		Log(ERROR) << "WSAStartup() failed\n";
+
+		return;
+	}
+#endif
+		
     server_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     
     if (server_socket < 0) {
         Log(ERROR) << "socket() failed\n";
         
+#ifdef WIN32
+		closesocket(server_socket);
+#else
         close(server_socket);
+#endif
+
         return;
     }
     
@@ -34,7 +64,12 @@ static void connect(const string& hostname, unsigned short port, int& server_soc
 	if (!hp) {
         Log(ERROR) << "Could not find host " << hostname << endl;
         
-        close(server_socket);
+#ifdef WIN32
+		closesocket(server_socket);
+#else
+		close(server_socket);
+#endif
+
 		return;
 	}
 	
@@ -99,7 +134,11 @@ static void receiveThread(NetworkCommunication& network) {
     array<unsigned char, NetworkConstants::BUFFER_SIZE> buffer;
     
     while (true) {
+#ifdef WIN32
+		int received = recv(network.getSocket(), (char*)buffer.data(), NetworkConstants::BUFFER_SIZE, 0);
+#else
         int received = recv(network.getSocket(), buffer.data(), NetworkConstants::BUFFER_SIZE, 0);
+#endif
         
         if(received <= 0) {
             Log(NETWORK) << "Receiving thread got error: " << strerror(errno) << endl;
@@ -124,7 +163,12 @@ static void sendThread(NetworkCommunication& network) {
         Packet &packet = network.getOutgoingPacket();
         
         int sending = min((unsigned int)NetworkConstants::BUFFER_SIZE, packet.getSize() - packet.getSent());
+
+#ifdef WIN32
+		int sent = send(network.getSocket(), (const char*)(packet.getData() + packet.getSent()), sending, 0);
+#else
         int sent = send(network.getSocket(), packet.getData() + packet.getSent(), sending, 0);
+#endif
         
         if(sent <= 0)
             break;
