@@ -4,7 +4,7 @@
 
 #include "Log.h"
 
-#include <map>
+#include <unordered_map>
 #include <sstream>
 #include <deque>
 #include <vector>
@@ -13,8 +13,9 @@ class Config {
 public:
 	void parse(const std::string& filename);
 	void clear();
+	bool has(const std::string& key);
 	
-	std::map<std::string, std::deque<std::string>>& internal();
+	std::unordered_map<std::string, std::deque<std::string>>& internal();
 	
 	template<class T>
 	T get(const std::string& key, const T& default_value) {
@@ -59,7 +60,7 @@ public:
 private:
 	void add(const std::pair<std::string, std::deque<std::string>>& config);
 	
-	std::map<std::string, std::deque<std::string>> configs_;
+	std::unordered_map<std::string, std::deque<std::string>> configs_;
 };
 
 #endif

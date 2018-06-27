@@ -24,6 +24,8 @@ private:
 	void handleSend();
 	void handleSendResult();
 	
+	void notifyWaiting();
+	
 	Packet* packet_ = nullptr;
 	
 	std::condition_variable answer_cv_;

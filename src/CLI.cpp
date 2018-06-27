@@ -5,6 +5,7 @@
 #include "NetworkCommunication.h"
 #include "PacketCreator.h"
 #include "Packet.h"
+#include "Timer.h"
 
 #include <fstream>
 
@@ -56,6 +57,8 @@ static void sendFiles(const string& to) {
 	
 	Log(DEBUG) << "File size " << size << " bytes\n";
 	
+	Timer timer;
+	
 	for (size_t i = 0; i < size;) {
 		int buffer_size = 4 * 1024 * 1024; // 4 MB
 		size_t read_amount = min(buffer_size, (int)(size - i));
@@ -85,10 +88,15 @@ static void sendFiles(const string& to) {
 	answer = Base::cli().waitForAnswer();
 	accepted = answer.getBool();
 	
+	auto elapsed_time = timer.restart();
+	
 	if (accepted)
 		Log(INFORMATION) << "File successfully sent\n";
 	else
 		Log(ERROR) << "File could not be sent\n";
+		
+	Log(DEBUG) << "Elapsed time: " << elapsed_time << " seconds\n";
+	Log(DEBUG) << "Speed: " << (static_cast<double>(size) / 1024 / 1024) / elapsed_time << " MB/s\n";
 }
 
 void CLI::start() {
@@ -173,6 +181,12 @@ void CLI::process(Packet& packet) {
 	}
 }
 
+void CLI::notifyWaiting() {
+	lock_guard<mutex> lock(answer_mutex_);
+	answer_packet_ = make_shared<Packet>(*packet_);
+	answer_cv_.notify_one();
+}
+
 void CLI::handleJoin() {
 	auto result = packet_->getBool();
 	
@@ -199,9 +213,7 @@ void CLI::handleAvailable() {
 }
 
 void CLI::handleInform() {
-	lock_guard<mutex> lock(answer_mutex_);
-	answer_packet_ = make_shared<Packet>(*packet_);
-	answer_cv_.notify_one();
+	notifyWaiting();
 }
 
 static string cleanFilename(string input, const string& delimiter) {
@@ -243,9 +255,20 @@ void CLI::handleSend() {
 	// Strip file to only filename
 	file = cleanFilename(file, "/");
 	
+	// Add folder ID if the option is enabled
+	if (Base::config().has("output_folder"))
+		file = Base::config().get<string>("output_folder", "") + "/" + file;
+	
 	shared_ptr<ofstream> file_stream;
 	
 	if (first) {
+		// Create folder if it does not exist
+		if (Base::config().has("output_folder")) {
+			string command = "mkdir -p " + Base::config().get<string>("output_folder", "");
+			
+			if (system(command.c_str())) {}
+		}
+		
 		// Remove any existing files
 		if (system(NULL)) {
 			string command = "rm -f " + file;
@@ -274,27 +297,17 @@ void CLI::handleSend() {
 		Log(WARNING) << "Could not open " << file << " for writing\n";
 		
 		return;
-	} else {
-		Log(INFORMATION) << "Opened " << file << endl;
 	}
 	
-	Log(DEBUG) << "Writing file " << bytes.size() << " bytes\n";
+	Log(DEBUG) << "Writing file " << file << " with " << bytes.size() << " bytes\n";
 	
 	const auto& data = bytes.data();
 	file_stream->write((const char*)&data[0], bytes.size());
-	
-	Log(DEBUG) << "Wrote file\n";
-	
-	//file_stream->close();
-	
+		
 	// Send OK to sender
 	Base::network().send(PacketCreator::sendResult(id, true));
 }
 
 void CLI::handleSendResult() {
-	Log(DEBUG) << "GOT SEND RESULT\n";
-	
-	lock_guard<mutex> lock(answer_mutex_);
-	answer_packet_ = make_shared<Packet>(*packet_);
-	answer_cv_.notify_one();
+	notifyWaiting();
 }

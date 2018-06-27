@@ -56,6 +56,12 @@ void Config::clear() {
 	configs_.clear();
 }
 
-map<string, deque<string>>& Config::internal() {
+unordered_map<string, deque<string>>& Config::internal() {
 	return configs_;
+}
+
+bool Config::has(const string& key) {
+	auto iterator = configs_.find(key);
+	
+	return iterator != configs_.end();
 }

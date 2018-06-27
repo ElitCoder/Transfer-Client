@@ -1,1 +1,4 @@
 name: test
+
+# Output folder for incoming files
+output_folder: files
