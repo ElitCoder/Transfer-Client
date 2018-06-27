@@ -25,4 +25,7 @@ add_executable(${PROJECT_NAME} ${files})
 
 # Link
 target_link_libraries(${PROJECT_NAME} ${CMAKE_THREAD_LIBS_INIT})
-target_link_libraries(${PROJECT_NAME} stdc++fs)
+
+if (UNIX)
+	target_link_libraries(${PROJECT_NAME} stdc++fs)
+endif (UNIX)

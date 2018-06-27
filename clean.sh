@@ -6,6 +6,6 @@ make clean
 # clean files
 rm -rf bin/files/
 
-# clean cmake
+# clean unix cmake
 rm -rf bin/CMakeFiles/
 rm -rf build/
