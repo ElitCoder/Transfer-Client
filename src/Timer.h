@@ -15,6 +15,8 @@ public:
 	double restart();
 	bool elapsed() const;
 	
+	double elapsedTime() const;
+	
 private:
 	std::chrono::time_point<std::chrono::system_clock> start_time_;
 	std::chrono::time_point<std::chrono::system_clock> elapsed_time_;

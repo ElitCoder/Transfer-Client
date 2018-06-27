@@ -7,3 +7,6 @@ output_folder: files
 # Network
 host: localhost
 port: 12000
+
+# File transfer buffer (bytes) (no performance increases over ~ 8 MB)
+buffer_size: 8388608

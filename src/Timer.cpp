@@ -31,6 +31,13 @@ double Timer::restart() {
 	return (double)nanoseconds.count() / 1e09;
 }
 
+double Timer::elapsedTime() const {
+	auto now = chrono::system_clock::now();
+	auto nanoseconds = chrono::duration_cast<chrono::nanoseconds>(now - start_time_);
+	
+	return (double)nanoseconds.count() / 1e09;
+}
+
 bool Timer::elapsed() const {
 	auto now = chrono::system_clock::now();
 	auto nanoseconds = chrono::duration_cast<chrono::nanoseconds>(now - elapsed_time_);

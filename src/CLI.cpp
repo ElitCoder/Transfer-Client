@@ -100,7 +100,7 @@ static void sendFile(const string& to, string file, string directory, string bas
 	Timer timer;
 	
 	for (size_t i = 0; i < size;) {
-		size_t buffer_size = 4 * 1024 * 1024; // 4 MB
+		size_t buffer_size = Base::config().get<size_t>("buffer_size", 4 * 1024 * 1024); // 4 MB default
 		size_t read_amount = min(buffer_size, size - i);
 		
 		// Create Packet inplace for speed
@@ -115,7 +115,7 @@ static void sendFile(const string& to, string file, string directory, string bas
 		auto old_size = data->size();
 		data->resize(data->size() + read_amount + 4);
 		
-		Log(DEBUG) << "Allocated from " << old_size << " to " << data->size() << endl;
+		//Log(DEBUG) << "Allocated from " << old_size << " to " << data->size() << endl;
 		
 		unsigned char* data_pointer = data->data() + old_size + 4;
 		
@@ -135,7 +135,7 @@ static void sendFile(const string& to, string file, string directory, string bas
 		packet.addBool(i == 0);
 		packet.finalize();
 		
-		Log(DEBUG) << "Sending " << actually_read << " bytes, fp: " << i << "\n";
+		//Log(DEBUG) << "Sending " << actually_read << " bytes, fp: " << i << "\n";
 
 		Base::network().send(packet);
 		i += actually_read;
@@ -147,6 +147,12 @@ static void sendFile(const string& to, string file, string directory, string bas
 			Log(WARNING) << "Something went wrong during file transfer\n";
 			
 			return;
+		}
+		
+		if (buffer_size < size && i % 2 == 0) {
+			auto elapsed_time = timer.elapsedTime();
+			
+			Log(DEBUG) << "Current speed: " << (static_cast<double>(i) / 1024 / 1024) / elapsed_time << " MB/s\n";
 		}
 	}
 	
