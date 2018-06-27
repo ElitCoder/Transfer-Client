@@ -24,9 +24,7 @@ public:
     
     void send(const Packet& packet, bool wait = false);
     
-    void waitForPacket();
-    Packet* getPacket();
-    bool hasPacket();
+    Packet& waitForPacket();
     void completePacket();
     
     PartialPacket& getPartialPacket();

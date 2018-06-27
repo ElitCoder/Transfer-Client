@@ -31,7 +31,7 @@ Packet PacketCreator::inform(const string& to, const string& file, const string&
 	return packet;
 }
 
-Packet PacketCreator::send(const string& to, const string& file, const string& directory, const vector<unsigned char>& data, bool first) {
+Packet PacketCreator::send(const string& to, const string& file, const string& directory, const pair<size_t, const unsigned char*>& data, bool first) {
 	Packet packet;
 	packet.addHeader(HEADER_SEND);
 	packet.addString(to);

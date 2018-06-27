@@ -18,17 +18,9 @@ static void printStart() {
 static void packetThread() {
 	while (true) {
 		// Wait until the Server sends something
-		Base::network().waitForPacket();
-		
-		while (Base::network().hasPacket()) {
-			auto* packet = Base::network().getPacket();
-			
-			if (packet == nullptr)
-				break;
-				
-			Base::cli().process(*packet);
-			Base::network().completePacket();
-		}
+		auto& packet = Base::network().waitForPacket();
+		Base::cli().process(packet);
+		Base::network().completePacket();
 	}
 }
 

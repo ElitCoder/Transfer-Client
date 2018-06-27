@@ -3,6 +3,7 @@
 #define PARTIAL_PACKET_H
 
 #include <vector>
+#include <memory>
 
 class PartialPacket {
 public:
@@ -13,12 +14,14 @@ public:
     void addData(const unsigned char *buffer, const unsigned int size);
     bool hasHeader() const;
     bool isFinished() const;
-    std::vector<unsigned char>& getData();
+    std::shared_ptr<std::vector<unsigned char>>& getData();
     
 private:
     void setFullSize();
     
-    std::vector<unsigned char> m_data;
+    std::shared_ptr<std::vector<unsigned char>> m_packet;
+    std::vector<unsigned char> m_header;
+    
     unsigned int m_size;
 };
 

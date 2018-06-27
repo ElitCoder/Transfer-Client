@@ -103,16 +103,32 @@ static void sendFile(const string& to, string file, string directory, string bas
 		size_t buffer_size = 4 * 1024 * 1024; // 4 MB
 		size_t read_amount = min(buffer_size, size - i);
 		
-		vector<unsigned char> data;
-		data.resize(read_amount);
+		// Create Packet inplace for speed
+		Packet packet;
+		packet.addHeader(HEADER_SEND);
+		packet.addString(to);
+		packet.addString(file);
+		packet.addString(directory);
 		
-		file_stream.read((char*)&data[0], read_amount);
+		// Allocate memory for reading data
+		auto& data = packet.internal();
+		auto old_size = data->size();
+		data->resize(data->size() + read_amount);
+		
+		unsigned char* data_pointer = data->data() + data->size();
+		
+		file_stream.read((char*)data_pointer, read_amount);
 		auto actually_read = file_stream.gcount();
-		data.resize(actually_read);
+		
+		if (actually_read != (long)read_amount)
+			data->resize(old_size + actually_read);
+			
+		packet.addBool(i == 0);
+		packet.finalize();
 		
 		Log(DEBUG) << "Sending " << actually_read << " bytes, fp: " << i << "\n";
 
-		Base::network().send(PacketCreator::send(to, file, directory, data, i == 0));
+		Base::network().send(packet);
 		i += actually_read;
 		
 		answer = Base::cli().waitForAnswer();
@@ -126,7 +142,7 @@ static void sendFile(const string& to, string file, string directory, string bas
 	}
 	
 	// Tell the receiver that we're done
-	Base::network().send(PacketCreator::send(to, file, directory, {}, false));
+	Base::network().send(PacketCreator::send(to, file, directory, { 0, nullptr }, false));
 	
 	Log(DEBUG) << "Waiting for finish\n";
 	
@@ -328,7 +344,7 @@ void CLI::handleSend() {
 	auto bytes = packet_->getBytes();
 	auto first = packet_->getBool();
 	
-	if (bytes.empty()) {
+	if (bytes.first == 0) {
 		Log(DEBUG) << "Removing from cache\n";
 		
 		// Remove from cache
@@ -396,10 +412,9 @@ void CLI::handleSend() {
 	if (file_stream->eof())
 		Log(WARNING) << "Eof bit set\n";
 	
-	Log(DEBUG) << "Writing file " << file << " with " << bytes.size() << " bytes\n";
+	Log(DEBUG) << "Writing file " << file << " with " << bytes.first << " bytes\n";
 	
-	const auto& data = bytes.data();
-	file_stream->write((const char*)&data[0], bytes.size());
+	file_stream->write((const char*)bytes.second, bytes.first);
 	file_stream->flush();
 	
 	// Send OK to sender

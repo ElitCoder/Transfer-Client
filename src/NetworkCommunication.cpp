@@ -200,24 +200,11 @@ void NetworkCommunication::start(const string& hostname, unsigned short port) {
     send_thread_ = thread(sendThread, ref(*this));
 }
 
-void NetworkCommunication::waitForPacket() {
+Packet& NetworkCommunication::waitForPacket() {
     unique_lock<mutex> lock(incoming_mutex_);
     incoming_cv_.wait(lock, [this] { return !incoming_packets_.empty(); });
-}
-
-Packet* NetworkCommunication::getPacket() {
-    lock_guard<mutex> lock(incoming_mutex_);
-    
-    if (incoming_packets_.empty())
-        return nullptr;
-        
-    return &incoming_packets_.front();
-}
-
-bool NetworkCommunication::hasPacket() {
-    lock_guard<mutex> lock(incoming_mutex_);
-    
-    return !incoming_packets_.empty();
+	
+	return incoming_packets_.front();
 }
 
 void NetworkCommunication::completePacket() {
