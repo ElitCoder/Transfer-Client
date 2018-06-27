@@ -18,7 +18,9 @@ void PartialPacket::setFullSize() {
         return;
     }
     
-    m_size = (m_header.front() << 24) | (m_header.at(1) << 16) | (m_header.at(2) << 8) | m_header.at(3); 
+    m_size = (m_header.front() << 24) | (m_header.at(1) << 16) | (m_header.at(2) << 8) | m_header.at(3);
+    
+    m_packet->reserve(m_size);
 }
 
 unsigned int PartialPacket::getFullSize() const {

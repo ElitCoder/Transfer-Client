@@ -58,23 +58,6 @@ void Packet::addString(const string &str) {
     m_packet->insert(m_packet->end(), str.begin(), str.end());
 }
 
-void Packet::addPointer(const unsigned char *ptr, const unsigned int size) {
-    if(isFinalized()) {
-        Log(ERROR) << "Can't add anything to a finalized packet\n";
-        
-        return;
-    }
-    
-    if(ptr == nullptr || size == 0) {
-        Log(ERROR) << "Trying to add a nullptr or size = 0 to packet\n";
-    }
-    
-    addInt(size);
-    
-    m_packet->reserve(m_packet->size() + size);
-    m_packet->insert(m_packet->end(), ptr, ptr + size);
-}
-
 void Packet::addBytes(const pair<size_t, const unsigned char*>& bytes) {
     if (isFinalized()) {
         Log(ERROR) << "Can't add anything to a finalized packet\n";

@@ -17,7 +17,6 @@ public:
     
     void addHeader(const unsigned char header);
     void addString(const std::string &str);
-    void addPointer(const unsigned char *ptr, const unsigned int size);
     void addInt(const int nbr);
     void addFloat(const float nbr);
     void addBool(const bool val);
