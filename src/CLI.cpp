@@ -24,82 +24,83 @@ static void monitoring() {
 static void sendFiles(const string& to) {
 	auto& files = Base::parameter().get("-s");
 	
-	if (files.size() > 1) {
-		Log(ERROR) << "It's only supported to send one file for now\n";
+	for (auto& file : files) {
+		// Is file a directory?
+		if (filesystem::is_directory(file)) {
+			Log(WARNING) << "Recursive sending is not available for now.\n";
+			
+			continue;
+		}
 		
-		return;
-	}
-	
-	auto& file = files.front();
-	
-	// Inform target of file transfer
-	Base::network().send(PacketCreator::inform(to, file));
-	auto answer = Base::cli().waitForAnswer();
-	auto accepted = answer.getBool();
-	
-	if (!accepted) {
-		Log(ERROR) << "Receiving side did not accept the file transfer or is not connected\n";
+		// Inform target of file transfer
+		Base::network().send(PacketCreator::inform(to, file));
+		auto answer = Base::cli().waitForAnswer();
+		auto accepted = answer.getBool();
 		
-		return;
-	}
-	
-	// Send the file
-	ifstream file_stream(file, ios_base::binary);
-	
-	if (!file_stream) {
-		Log(ERROR) << "The file " << file << " could not be opened\n";
+		if (!accepted) {
+			Log(ERROR) << "Receiving side did not accept the file transfer or is not connected\n";
+			
+			continue;
+		}
 		
-		return;
-	}
-	
-	file_stream.seekg(0, ios_base::end);
-	size_t size = file_stream.tellg();
-	file_stream.seekg(0, ios_base::beg);
-	
-	Log(DEBUG) << "File size " << size << " bytes\n";
-	
-	Timer timer;
-	
-	for (size_t i = 0; i < size;) {
-		int buffer_size = 4 * 1024 * 1024; // 4 MB
-		size_t read_amount = min(buffer_size, (int)(size - i));
+		// Send the file
+		ifstream file_stream(file, ios_base::binary);
 		
-		vector<unsigned char> data;
-		data.resize(read_amount);
+		if (!file_stream) {
+			Log(ERROR) << "The file " << file << " could not be opened\n";
+			
+			continue;
+		}
 		
-		file_stream.read((char*)&data[0], read_amount);
-		auto actually_read = file_stream.gcount();
-		data.resize(actually_read);
+		file_stream.seekg(0, ios_base::end);
+		size_t size = file_stream.tellg();
+		file_stream.seekg(0, ios_base::beg);
 		
-		Log(DEBUG) << "Sending " << actually_read << " bytes, fp: " << i << "\n";
+		Log(DEBUG) << "File size " << size << " bytes\n";
+		
+		Timer timer;
+		
+		for (size_t i = 0; i < size;) {
+			int buffer_size = 4 * 1024 * 1024; // 4 MB
+			size_t read_amount = min(buffer_size, (int)(size - i));
+			
+			vector<unsigned char> data;
+			data.resize(read_amount);
+			
+			file_stream.read((char*)&data[0], read_amount);
+			auto actually_read = file_stream.gcount();
+			data.resize(actually_read);
+			
+			Log(DEBUG) << "Sending " << actually_read << " bytes, fp: " << i << "\n";
 
-		Base::network().send(PacketCreator::send(to, file, data, i == 0), true);
-		i += actually_read;
+			Base::network().send(PacketCreator::send(to, file, data, i == 0), true);
+			i += actually_read;
+			
+			answer = Base::cli().waitForAnswer();
+			accepted = answer.getBool();
+			
+			if (!accepted)
+				Log(WARNING) << "Something went wrong during file transfer\n";
+		}
+		
+		// Tell the receiver that we're done
+		Base::network().send(PacketCreator::send(to, file, {}, false), true);
+		
+		Log(DEBUG) << "Waiting for answer\n";
 		
 		answer = Base::cli().waitForAnswer();
 		accepted = answer.getBool();
 		
-		if (!accepted)
-			Log(WARNING) << "Something went wrong during file transfer\n";
-	}
-	
-	// Tell the receiver that we're done
-	Base::network().send(PacketCreator::send(to, file, {}, false), true);
-	
-	Log(DEBUG) << "Waiting for answer\n";
-	
-	answer = Base::cli().waitForAnswer();
-	accepted = answer.getBool();
-	
-	auto elapsed_time = timer.restart();
-	
-	if (accepted)
-		Log(INFORMATION) << "File successfully sent\n";
-	else
-		Log(ERROR) << "File could not be sent\n";
+		auto elapsed_time = timer.restart();
 		
-	Log(DEBUG) << "Elapsed time: " << elapsed_time << " seconds\n";
-	Log(DEBUG) << "Speed: " << (static_cast<double>(size) / 1024 / 1024) / elapsed_time << " MB/s\n";
+		if (accepted)
+			Log(INFORMATION) << "File successfully sent\n";
+		else
+			Log(ERROR) << "File could not be sent\n";
+			
+		Log(DEBUG) << "Elapsed time: " << elapsed_time << " seconds\n";
+		Log(DEBUG) << "Speed: " << (static_cast<double>(size) / 1024 / 1024) / elapsed_time << " MB/s\n";
+	}
 }
 
 void CLI::start() {
