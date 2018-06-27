@@ -20,21 +20,23 @@ Packet PacketCreator::available() {
 	return packet;
 }
 
-Packet PacketCreator::inform(const string& to, const string& file) {
+Packet PacketCreator::inform(const string& to, const string& file, const string& directory) {
 	Packet packet;
 	packet.addHeader(HEADER_INFORM);
 	packet.addString(to);
 	packet.addString(file);
+	packet.addString(directory);
 	packet.finalize();
 	
 	return packet;
 }
 
-Packet PacketCreator::send(const string& to, const string& file, const vector<unsigned char>& data, bool first) {
+Packet PacketCreator::send(const string& to, const string& file, const string& directory, const vector<unsigned char>& data, bool first) {
 	Packet packet;
 	packet.addHeader(HEADER_SEND);
 	packet.addString(to);
 	packet.addString(file);
+	packet.addString(directory);
 	packet.addBytes(data);
 	packet.addBool(first);
 	packet.finalize();

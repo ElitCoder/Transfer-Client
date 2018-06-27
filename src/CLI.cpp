@@ -23,10 +23,159 @@ static void monitoring() {
 	Log(INFORMATION) << "Registering at Server..\n";
 }
 
+#if 0
+static string cleanFilename(string input, const string& delimiter) {
+	size_t pos = 0;
+	string token;
+	
+	while ((pos = input.find(delimiter)) != string::npos) {
+	    token = input.substr(0, pos);
+	    input.erase(0, pos + delimiter.length());
+	}
+	
+	return input;
+}
+#endif
+
+static void splitBaseFile(string input, string& base, string& file) {
+	size_t pos = 0;
+	
+	while (((pos = input.find("/")) != string::npos) || ((pos = input.find("\\")) != string::npos)) {		
+		base += input.substr(0, pos + 1);
+	    input.erase(0, pos + 1);
+	}
+	
+	file = input;
+}
+
+static void sendFile(const string& to, string file, string directory, string base) {
+	string full_path = base + directory + file;
+	
+	if (directory.empty())
+		full_path = base + file;
+	
+	if (filesystem::is_directory(full_path)) {
+		auto recursive = Base::parameter().has("-r");
+
+		if (!recursive) {
+			// We're not doing recursive sending
+			return;
+		}
+		
+		Log(DEBUG) << file << " is a folder, doing recursion\n";
+		
+		// List contents of directory and sendFile on each of them
+		for (auto& recursive_file : filesystem::directory_iterator(full_path)) {
+			ostringstream stream;
+			stream << recursive_file;
+			string path = stream.str();
+			
+			// Remove ""
+			path.erase(0, 1);
+			path.pop_back();
+			
+			string new_base = "";
+			splitBaseFile(path, new_base, path);
+			
+			sendFile(to, path, directory + file + "/", base);
+		}
+		
+		// We're done with this file
+		return;
+	}
+	
+	// Inform target of file transfer
+	Base::network().send(PacketCreator::inform(to, file, directory));
+	auto answer = Base::cli().waitForAnswer();
+	auto accepted = answer.getBool();
+	
+	if (!accepted) {
+		Log(ERROR) << "Receiving side did not accept the file transfer or is not connected\n";
+		
+		return;
+	}
+	
+	// Send the file
+	ifstream file_stream(full_path, ios_base::binary);
+	
+	if (!file_stream) {
+		Log(ERROR) << "The file " << full_path << " could not be opened\n";
+		
+		return;
+	}
+	
+	file_stream.seekg(0, ios_base::end);
+	size_t size = file_stream.tellg();
+	file_stream.seekg(0, ios_base::beg);
+	
+	Log(DEBUG) << "Sending the file " << base << " + " << directory << " + " << file << endl;
+	Log(DEBUG) << "File size " << size << " bytes\n";
+	
+	Timer timer;
+	
+	for (size_t i = 0; i < size;) {
+		size_t buffer_size = 4 * 1024 * 1024; // 4 MB
+		size_t read_amount = min(buffer_size, size - i);
+		
+		vector<unsigned char> data;
+		data.resize(read_amount);
+		
+		file_stream.read((char*)&data[0], read_amount);
+		auto actually_read = file_stream.gcount();
+		data.resize(actually_read);
+		
+		Log(DEBUG) << "Sending " << actually_read << " bytes, fp: " << i << "\n";
+
+		Base::network().send(PacketCreator::send(to, file, directory, data, i == 0));
+		i += actually_read;
+		
+		answer = Base::cli().waitForAnswer();
+		accepted = answer.getBool();
+		
+		if (!accepted) {
+			Log(WARNING) << "Something went wrong during file transfer\n";
+			
+			return;
+		}
+	}
+	
+	// Tell the receiver that we're done
+	Base::network().send(PacketCreator::send(to, file, directory, {}, false));
+	
+	Log(DEBUG) << "Waiting for finish\n";
+	
+	answer = Base::cli().waitForAnswer();
+	accepted = answer.getBool();
+	
+	auto elapsed_time = timer.restart();
+	
+	if (accepted)
+		Log(DEBUG) << "File successfully sent\n";
+	else
+		Log(ERROR) << "File could not be sent\n";
+		
+	Log(DEBUG) << "Elapsed time: " << elapsed_time << " seconds\n";
+	Log(DEBUG) << "Speed: " << (static_cast<double>(size) / 1024 / 1024) / elapsed_time << " MB/s\n";
+	
+	Log(NONE) << endl;
+}
+
 static void sendFiles(const string& to) {
 	auto& files = Base::parameter().get("-s");
 	
 	for (auto& file : files) {
+		auto file_copy = file;
+		
+		// Remove / or \ at the end if there is one
+		if (file_copy.back() == '/' || file_copy.back() == '\\')
+			file_copy.pop_back();
+			
+		string base = "";
+		splitBaseFile(file_copy, base, file_copy);
+		
+		sendFile(to, file_copy, "", base);
+		
+		#if 0
 		// Is file a directory?
 		if (filesystem::is_directory(file)) {
 			Log(WARNING) << "Recursive sending is not available for now.\n";
@@ -102,6 +251,7 @@ static void sendFiles(const string& to) {
 			
 		Log(DEBUG) << "Elapsed time: " << elapsed_time << " seconds\n";
 		Log(DEBUG) << "Speed: " << (static_cast<double>(size) / 1024 / 1024) / elapsed_time << " MB/s\n";
+		#endif
 	}
 }
 
@@ -237,22 +387,11 @@ void CLI::handleInform() {
 	notifyWaiting();
 }
 
-static string cleanFilename(string input, const string& delimiter) {
-	size_t pos = 0;
-	string token;
-	
-	while ((pos = input.find(delimiter)) != string::npos) {
-	    token = input.substr(0, pos);
-	    input.erase(0, pos + delimiter.length());
-	}
-	
-	return input;
-}
-
 void CLI::handleSend() {
 	// TODO: Receive file here
 	auto id = packet_->getInt();
 	auto file = packet_->getString();
+	auto directory = packet_->getString();
 	auto bytes = packet_->getBytes();
 	auto first = packet_->getBool();
 	
@@ -273,8 +412,8 @@ void CLI::handleSend() {
 		return;
 	}
 	
-	// Strip file to only filename
-	file = cleanFilename(file, "/");
+	// Add directory
+	file = directory + file;
 	
 	// Add folder ID if the option is enabled
 	if (Base::config().has("output_folder"))
@@ -288,6 +427,9 @@ void CLI::handleSend() {
 		// Create folder if it does not exist
 		if (Base::config().has("output_folder"))
 			filesystem::create_directory(Base::config().get<string>("output_folder", ""));
+		
+		// Create directory if it does not exist
+		filesystem::create_directory(Base::config().get<string>("output_folder", "") + "/" + directory);
 		
 		// Remove any existing files
 		remove(file.c_str());
