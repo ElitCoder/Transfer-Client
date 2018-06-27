@@ -8,8 +8,11 @@
 
 using namespace std;
 
+string g_protocol_standard = "a1";
+
 static void printStart() {
 	Log(NONE) << "Transfer-Client [alpha] [" << __DATE__ << " @ " << __TIME__ << "]\n";
+	Log(NONE) << "Protocol standard: " << g_protocol_standard << "\n";
 }
 
 static void packetThread() {

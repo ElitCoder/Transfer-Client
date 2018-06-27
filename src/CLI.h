@@ -23,6 +23,7 @@ private:
 	void handleInform();
 	void handleSend();
 	void handleSendResult();
+	void handleInitialize();
 	
 	void notifyWaiting();
 	

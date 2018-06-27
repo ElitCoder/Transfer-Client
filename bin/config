@@ -1,4 +1,9 @@
+# Registered name at Server
 name: test
 
 # Output folder for incoming files
 output_folder: files
+
+# Network
+host: localhost
+port: 12000

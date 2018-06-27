@@ -51,3 +51,12 @@ Packet PacketCreator::sendResult(int id, bool result) {
 	
 	return packet;
 }
+
+Packet PacketCreator::initialize(const string& version) {
+	Packet packet;
+	packet.addHeader(HEADER_INITIALIZE);
+	packet.addString(version);
+	packet.finalize();
+	
+	return packet;
+}

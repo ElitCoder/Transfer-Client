@@ -12,6 +12,8 @@
 
 using namespace std;
 
+extern string g_protocol_standard;
+
 static void monitoring() {
 	auto name = Base::config().get<string>("name", "");
 	
@@ -104,8 +106,20 @@ static void sendFiles(const string& to) {
 }
 
 void CLI::start() {
-	// Check options
+	// Register at Server
+	Base::network().send(PacketCreator::initialize(g_protocol_standard));
+	auto packet = waitForAnswer();
+	auto accepted = packet.getBool();
 	
+	if (accepted) {
+		Log(DEBUG) << "Server accepted our protocol version\n";
+	} else {
+		Log(ERROR) << "This client uses an outdated protocol\n";
+		
+		quick_exit(-1);
+	}
+	
+	// Check options
 	// Monitoring mode, wait for packets
 	if (Base::parameter().has("-m")) {
 		monitoring();
@@ -175,6 +189,9 @@ void CLI::process(Packet& packet) {
 			break;
 			
 		case HEADER_SEND_RESULT: handleSendResult();
+			break;
+			
+		case HEADER_INITIALIZE: handleInitialize();
 			break;
 			
 		default: {
@@ -315,5 +332,9 @@ void CLI::handleSend() {
 }
 
 void CLI::handleSendResult() {
+	notifyWaiting();
+}
+
+void CLI::handleInitialize() {
 	notifyWaiting();
 }
