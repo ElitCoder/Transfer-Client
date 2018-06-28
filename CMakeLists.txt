@@ -17,7 +17,7 @@ file(GLOB files ${PROJECT_SOURCE_DIR}/src/*.cpp)
 # Dependencies
 find_package(Threads)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Executable
@@ -26,6 +26,9 @@ add_executable(${PROJECT_NAME} ${files})
 # Link
 target_link_libraries(${PROJECT_NAME} ${CMAKE_THREAD_LIBS_INIT})
 
-if (UNIX)
-	target_link_libraries(${PROJECT_NAME} stdc++fs)
-endif (UNIX)
+if (WIN32)
+	target_link_libraries(${PROJECT_NAME} ws2_32.lib)
+	
+	# Static link for Windows
+	set(CMAKE_EXE_LINKER_FLAGS "-static")
+endif (WIN32)

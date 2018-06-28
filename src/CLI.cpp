@@ -8,9 +8,18 @@
 #include "Timer.h"
 
 #include <fstream>
-#include <filesystem>
+#include <sys/stat.h>
+#include <dirent.h>
+
+#ifdef WIN32
+#include <direct.h>		// For _mkdir in Windows
+#endif
 
 using namespace std;
+
+#ifdef WIN32
+constexpr auto quick_exit = _exit; // mingw32 does not support quick_exit for now
+#endif
 
 extern string g_protocol_standard;
 
@@ -34,35 +43,67 @@ static void splitBaseFile(string input, string& base, string& file) {
 	file = input;
 }
 
+static bool isDirectory(const string& path) {
+	struct stat stats;
+	
+	if (stat(path.c_str(), &stats) != 0) {
+		Log(WARNING) << "stat() failed\n";
+		
+		return false;
+	}
+	
+	return stats.st_mode & S_IFDIR;
+}
+
+static vector<string> listDirectory(const string& path) {
+	DIR* dir;
+	struct dirent* ent;
+	
+	if ((dir = opendir(path.c_str())) == NULL) {
+		Log(WARNING) << "Could not list directory " << path << endl;
+		
+		return vector<string>();
+	}
+	
+	vector<string> contents;
+	
+	while ((ent = readdir(dir)) != NULL)
+		contents.push_back(ent->d_name);
+		
+	closedir(dir);
+	
+	return contents;
+}
+
 static void sendFile(const string& to, string file, string directory, string base) {
 	string full_path = base + directory + file;
 	
 	if (directory.empty())
 		full_path = base + file;
 	
-	if (filesystem::is_directory(full_path)) {
+	if (isDirectory(full_path)) {
 		auto recursive = Base::parameter().has("-r");
 
 		if (!recursive) {
 			// We're not doing recursive sending
+			Log(WARNING) << "Recursive sending is disabled\n";
+			
 			return;
 		}
 		
 		Log(DEBUG) << file << " is a folder, doing recursion\n";
 		
 		// List contents of directory and sendFile on each of them
-		for (auto& recursive_file : filesystem::directory_iterator(full_path)) {
-			ostringstream stream;
-			stream << recursive_file;
-			string path = stream.str();
-			
-			// Remove ""
-			path.erase(0, 1);
-			path.pop_back();
-			
+		auto contents = listDirectory(full_path);
+		
+		for (auto& recursive_file : contents) {
+			// Ignore hidden files (Linux)
+			if (recursive_file.front() == '.')
+				continue;
+
+			string path = recursive_file;
 			string new_base = "";
-			splitBaseFile(path, new_base, path);
-			
+						
 			sendFile(to, path, directory + file + "/", base);
 		}
 		
@@ -350,7 +391,11 @@ static void create_directory_path(const string& path) {
 	for (auto& folder : folders) {
 		current_path += folder + "/";
 		
-		filesystem::create_directory(current_path);
+		#ifdef WIN32
+		_mkdir(current_path.c_str());
+		#else
+		mkdir(current_path.c_str(), 0755);
+		#endif		
 	}
 }
 

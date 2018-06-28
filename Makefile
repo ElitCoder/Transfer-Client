@@ -1,9 +1,9 @@
 CPP_FILES	:= $(wildcard src/*.cpp)
 OBJ_FILES	:= $(addprefix obj/,$(notdir $(CPP_FILES:.cpp=.o)))
-CC_FLAGS	:= -std=c++17 -Wall -Wextra -pedantic-errors
+CC_FLAGS	:= -std=c++14 -Wall -Wextra -pedantic-errors
 #CC_FLAGS	+= -O3
 #CC_FLAGS	+= -g
-LD_LIBS		:= -lpthread -lstdc++fs
+LD_LIBS		:= -lpthread
 
 EXECUTABLE	:= bin/Transfer-Client
 

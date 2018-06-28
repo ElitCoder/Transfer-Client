@@ -16,8 +16,8 @@
 #include <fcntl.h>
 
 #ifdef WIN32
-#include <Windows.h>
-#include <WinSock2.h>
+#include <windows.h>
+#include <winsock2.h>
 #else
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -27,7 +27,7 @@
 #endif
 
 #ifdef WIN32
-#pragma comment(lib, "Ws2_32.lib")
+#pragma comment(lib, "ws2_32.lib")
 #endif
 
 using namespace std;
