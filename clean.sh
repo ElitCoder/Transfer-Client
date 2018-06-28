@@ -12,3 +12,7 @@ rm -rf build/
 
 # clean cross platform binaries
 rm -f bin/Transfer-Client*
+
+# clean rel_bin
+rm -rf rel_bin/linux/
+rm -rf rel_bin/windows/

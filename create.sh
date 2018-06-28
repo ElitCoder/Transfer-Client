@@ -19,6 +19,41 @@ if [ $# -eq 0 ]; then
 else
 	if [ $1 = "clean" ]; then
 		build clean
+	elif [ $1 = "rel_bin" ]; then
+		# create linux client
+		./create.sh clean
+		
+		if [ $? -ne 0 ]; then
+			exit 1
+		fi
+		
+		mkdir -p rel_bin/linux/
+		cp bin/* rel_bin/linux/
+		cd rel_bin/linux/
+		zip ../transfer_client_linux.zip *
+		cd ../../
+		rm -r rel_bin/linux/
+		
+		./clean.sh
+		
+		# create windows client
+		mkdir build; cd build
+		cmake -DCMAKE_TOOLCHAIN_FILE=../toolchain-windows-mingw32.cmake ..
+		cmake --build .
+		
+		if [ $? -ne 0 ]; then
+			exit 1
+		fi
+		
+		cd ../
+		mkdir -p rel_bin/windows/
+		cp bin/* rel_bin/windows/
+		cd rel_bin/windows/
+		zip ../transfer_client_windows.zip *
+		cd ../../
+		rm -r rel_bin/windows/
+		
+		./clean.sh
 	elif [ $1 = "run" ]; then
 		build
 		
