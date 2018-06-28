@@ -8,6 +8,10 @@
 #include <unordered_map>
 #include <fstream>
 
+enum {
+	ERROR_OLD_PROTOCOL
+};
+
 class Packet;
 
 class CLI {

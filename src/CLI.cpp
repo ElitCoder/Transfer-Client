@@ -10,6 +10,9 @@
 #include <fstream>
 #include <sys/stat.h>
 #include <dirent.h>
+#ifndef WIN32
+#include <curl/curl.h>
+#endif
 
 #ifdef WIN32
 #include <direct.h>		// For _mkdir in Windows
@@ -235,7 +238,46 @@ static void sendFiles(const string& to) {
 	}
 }
 
+#ifndef WIN32
+static void download(const string& url, const string& name) {
+	CURL* curl = curl_easy_init();
+	
+	if (!curl) {
+		Log(WARNING) << "curl could not be initialized, auto-update is not available\n";
+		
+		return;
+	}
+	
+	FILE* file = fopen(name.c_str(), "w");
+	
+	if (!file) {
+		Log(ERROR) << "Output file " << name << " could not be opened\n";
+		
+		curl_easy_cleanup(curl);
+		return;
+	}
+	
+	curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+#ifndef WIN32
+	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, NULL);
+#endif
+	curl_easy_setopt(curl, CURLOPT_WRITEDATA, file);
+	
+	CURLcode result = curl_easy_perform(curl);
+	
+	if (result != CURLE_OK)
+		Log(WARNING) << "Transfer failed\n";
+
+	curl_easy_cleanup(curl);
+	fclose(file);
+}
+#endif
+
 void CLI::start() {
+	// Remove old update files if they exist
+	remove("client.zip");
+	remove("update.sh");
+	
 	// Register at Server
 	Base::network().send(PacketCreator::initialize(g_protocol_standard));
 	auto packet = waitForAnswer();
@@ -244,7 +286,26 @@ void CLI::start() {
 	if (accepted) {
 		Log(DEBUG) << "Server accepted our protocol version\n";
 	} else {
-		Log(ERROR) << "This client uses an outdated protocol\n";
+		auto code = packet.getInt();
+		
+		Log(ERROR) << "Client was not accepted, code " << code << "\n";
+		
+		if (code == ERROR_OLD_PROTOCOL) {
+#ifdef WIN32
+			Log(ERROR) << "Auto-updating client is not available for Windows, please download the new binaries\n";
+#else
+			// Auto-update
+			auto url = packet.getString();
+			auto url_script = packet.getString();
+			
+			Log(INFORMATION) << "Initiating auto-update\n";
+			download(url, "client.zip");
+			download(url_script, "update.sh");
+			
+			// Start update script
+			if (system("./update.sh")) {}
+#endif
+		}
 		
 		quick_exit(-1);
 	}

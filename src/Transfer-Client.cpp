@@ -8,7 +8,7 @@
 
 using namespace std;
 
-string g_protocol_standard = "a2";
+string g_protocol_standard = "a3";
 
 static void printStart() {
 	Log(NONE) << "Transfer-Client [alpha] [" << __DATE__ << " @ " << __TIME__ << "]\n";

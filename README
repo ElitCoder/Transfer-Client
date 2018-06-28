@@ -7,7 +7,7 @@ Building:
 mkdir build; cd build; cmake .. && cmake --build . && cd ..
 
 Building with mingw32:
-mkdir build; cd build; cmake -DCMAKE_TOOLCHAIN_FILE=../toolchain-windows-mingw32.cmake && cmake --build . && cd ..
+mkdir build; cd build; cmake -DCMAKE_TOOLCHAIN_FILE=../toolchain-windows-mingw32.cmake .. && cmake --build . && cd ..
 
 Development usage (Linux):
 ./create run <params> -- builds if not up to date and runs the executable
