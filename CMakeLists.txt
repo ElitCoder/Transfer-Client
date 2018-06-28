@@ -17,14 +17,27 @@ file(GLOB files ${PROJECT_SOURCE_DIR}/src/*.cpp)
 # Dependencies
 find_package(Threads)
 
+if (UNIX)
+	find_package(CURL REQUIRED)
+endif (UNIX)
+
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Executable
 add_executable(${PROJECT_NAME} ${files})
 
+# Include
+if (UNIX)
+	include_directories(${CURL_INCLUDE_DIR})
+endif (UNIX)
+
 # Link
 target_link_libraries(${PROJECT_NAME} ${CMAKE_THREAD_LIBS_INIT})
+
+if (UNIX)
+	target_link_libraries(${PROJECT_NAME} ${CURL_LIBRARIES})
+endif (UNIX)
 
 if (WIN32)
 	target_link_libraries(${PROJECT_NAME} ws2_32.lib)
