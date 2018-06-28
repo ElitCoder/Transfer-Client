@@ -16,3 +16,7 @@ rm -f bin/Transfer-Client*
 # clean rel_bin
 rm -rf rel_bin/linux/
 rm -rf rel_bin/windows/
+
+# clean update files
+rm -f bin/client*
+rm -f bin/update*
