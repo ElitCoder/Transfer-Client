@@ -8,7 +8,7 @@
 #include <condition_variable>
 
 enum NetworkConstants {
-    BUFFER_SIZE = 65536
+    BUFFER_SIZE = 1048576
 };
 
 class Packet;
