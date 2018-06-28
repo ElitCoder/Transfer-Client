@@ -302,6 +302,9 @@ void CLI::start() {
 			download(url, "client.zip");
 			download(url_script, "update.sh");
 			
+			// Make update script executable
+			chmod("update.sh", 0755);
+			
 			// Start update script
 			if (system("./update.sh")) {}
 #endif
