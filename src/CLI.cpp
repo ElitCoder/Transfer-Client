@@ -6,17 +6,9 @@
 #include "PacketCreator.h"
 #include "Packet.h"
 #include "Timer.h"
+#include "IO.h"
 
-#include <fstream>
 #include <sys/stat.h>
-#include <dirent.h>
-#ifndef WIN32
-#include <curl/curl.h>
-#endif
-
-#ifdef WIN32
-#include <direct.h>		// For _mkdir in Windows
-#endif
 
 using namespace std;
 
@@ -46,45 +38,13 @@ static void splitBaseFile(string input, string& base, string& file) {
 	file = input;
 }
 
-static bool isDirectory(const string& path) {
-	struct stat stats;
-	
-	if (stat(path.c_str(), &stats) != 0) {
-		Log(WARNING) << "stat() failed\n";
-		
-		return false;
-	}
-	
-	return stats.st_mode & S_IFDIR;
-}
-
-static vector<string> listDirectory(const string& path) {
-	DIR* dir;
-	struct dirent* ent;
-	
-	if ((dir = opendir(path.c_str())) == NULL) {
-		Log(WARNING) << "Could not list directory " << path << endl;
-		
-		return vector<string>();
-	}
-	
-	vector<string> contents;
-	
-	while ((ent = readdir(dir)) != NULL)
-		contents.push_back(ent->d_name);
-		
-	closedir(dir);
-	
-	return contents;
-}
-
 static void sendFile(const string& to, string file, string directory, string base) {
 	string full_path = base + directory + file;
 	
 	if (directory.empty())
 		full_path = base + file;
 	
-	if (isDirectory(full_path)) {
+	if (IO::isDirectory(full_path)) {
 		auto recursive = Base::parameter().has("-r");
 
 		if (!recursive) {
@@ -97,7 +57,7 @@ static void sendFile(const string& to, string file, string directory, string bas
 		Log(DEBUG) << file << " is a folder, doing recursion\n";
 		
 		// List contents of directory and sendFile on each of them
-		auto contents = listDirectory(full_path);
+		auto contents = IO::listDirectory(full_path);
 		
 		for (auto& recursive_file : contents) {
 			// Ignore hidden files (Linux)
@@ -125,22 +85,18 @@ static void sendFile(const string& to, string file, string directory, string bas
 		return;
 	}
 	
-	// Send the file
-	ifstream file_stream(full_path, ios_base::binary);
+	size_t size;
 	
-	if (!file_stream) {
-		Log(ERROR) << "The file " << full_path << " could not be opened\n";
-		
+	try {
+		size = IO::getSize(full_path);
+	} catch (...) {
 		return;
 	}
-	
-	file_stream.seekg(0, ios_base::end);
-	size_t size = file_stream.tellg();
-	file_stream.seekg(0, ios_base::beg);
 	
 	Log(DEBUG) << "Sending the file " << base << " + " << directory << " + " << file << endl;
 	Log(DEBUG) << "File size " << size << " bytes\n";
 	
+	ifstream file_stream(full_path, ios_base::binary); // It's valid since getSize() did not throw
 	Timer timer;
 	
 	for (size_t i = 0; i < size;) {
@@ -193,7 +149,7 @@ static void sendFile(const string& to, string file, string directory, string bas
 			return;
 		}
 		
-		if (buffer_size < size && i % 2 == 0) {
+		if (buffer_size < size) {
 			auto elapsed_time = timer.elapsedTime();
 			
 			Log(DEBUG) << "Current speed: " << (static_cast<double>(i) / 1024 / 1024) / elapsed_time << " MB/s\n";
@@ -238,41 +194,6 @@ static void sendFiles(const string& to) {
 	}
 }
 
-#ifndef WIN32
-static void download(const string& url, const string& name) {
-	CURL* curl = curl_easy_init();
-	
-	if (!curl) {
-		Log(WARNING) << "curl could not be initialized, auto-update is not available\n";
-		
-		return;
-	}
-	
-	FILE* file = fopen(name.c_str(), "w");
-	
-	if (!file) {
-		Log(ERROR) << "Output file " << name << " could not be opened\n";
-		
-		curl_easy_cleanup(curl);
-		return;
-	}
-	
-	curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-#ifndef WIN32
-	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, NULL);
-#endif
-	curl_easy_setopt(curl, CURLOPT_WRITEDATA, file);
-	
-	CURLcode result = curl_easy_perform(curl);
-	
-	if (result != CURLE_OK)
-		Log(WARNING) << "Transfer failed\n";
-
-	curl_easy_cleanup(curl);
-	fclose(file);
-}
-#endif
-
 void CLI::start() {
 	// Remove old update files if they exist
 	remove("client.zip");
@@ -299,8 +220,8 @@ void CLI::start() {
 			auto url_script = packet.getString();
 			
 			Log(INFORMATION) << "Initiating auto-update\n";
-			download(url, "client.zip");
-			download(url_script, "update.sh");
+			IO::download(url, "client.zip");
+			IO::download(url_script, "update.sh");
 			
 			// Make update script executable
 			chmod("update.sh", 0755);
@@ -434,35 +355,6 @@ void CLI::handleInform() {
 	notifyWaiting();
 }
 
-static vector<string> getTokens(string input, const string& delimiter) {
-	size_t pos = 0;
-	vector<string> tokens;
-	
-	while ((pos = input.find(delimiter)) != string::npos) {
-	    auto token = input.substr(0, pos);
-	    input.erase(0, pos + delimiter.length());
-		
-		tokens.push_back(token);
-	}
-	
-	return tokens;
-}
-
-static void create_directory_path(const string& path) {
-	auto folders = getTokens(path, "/");
-	string current_path = "";
-	
-	for (auto& folder : folders) {
-		current_path += folder + "/";
-		
-		#ifdef WIN32
-		_mkdir(current_path.c_str());
-		#else
-		mkdir(current_path.c_str(), 0755);
-		#endif		
-	}
-}
-
 void CLI::handleSend() {
 	// TODO: Receive file here
 	auto id = packet_->getInt();
@@ -520,10 +412,10 @@ void CLI::handleSend() {
 		
 		// Create folder if it does not exist
 		if (Base::config().has("output_folder"))
-			create_directory_path(Base::config().get<string>("output_folder", ""));
+			IO::createDirectory(Base::config().get<string>("output_folder", ""));
 		
 		// Create directory if it does not exist
-		create_directory_path(Base::config().get<string>("output_folder", "") + "/" + directory);
+		IO::createDirectory(Base::config().get<string>("output_folder", "") + "/" + directory);
 		
 		// Remove any existing files
 		remove(file.c_str());
@@ -560,7 +452,6 @@ void CLI::handleSend() {
 	Log(DEBUG) << "Writing file " << file << " with " << bytes.first << " bytes\n";
 	
 	file_stream->write((const char*)bytes.second, bytes.first);
-	//file_stream->flush();
 	
 	// Send OK to sender
 	Base::network().send(PacketCreator::sendResult(id, true));
