@@ -20,12 +20,13 @@ Packet PacketCreator::available() {
 	return packet;
 }
 
-Packet PacketCreator::inform(const string& to, const string& file, const string& directory) {
+Packet PacketCreator::inform(const string& to, const string& file, const string& directory, bool direct) {
 	Packet packet;
 	packet.addHeader(HEADER_INFORM);
 	packet.addString(to);
 	packet.addString(file);
 	packet.addString(directory);
+	packet.addBool(direct);
 	packet.finalize();
 	
 	return packet;

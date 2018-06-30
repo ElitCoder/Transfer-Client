@@ -168,7 +168,7 @@ static void sendFile(const string& to, string file, string directory, string bas
 	}
 	
 	// Inform target of file transfer
-	Base::network().send(PacketCreator::inform(to, file, directory));
+	Base::network().send(PacketCreator::inform(to, file, directory, Base::config().get<bool>("direct", true)));
 	auto answer = Base::cli().waitForAnswer();
 	auto accepted = answer.getBool();
 	
@@ -375,13 +375,14 @@ void CLI::start() {
 		Log(ERROR) << "Client was not accepted, code " << code << "\n";
 		
 		if (code == ERROR_OLD_PROTOCOL) {
-#ifdef WIN32
-			Log(ERROR) << "Auto-updating client is not available for Windows, please download the new binaries\n";
-#else
 			// Auto-update
 			auto url = packet.getString();
 			auto url_script = packet.getString();
 			
+#ifdef WIN32
+			Log(ERROR) << "Auto-updating client is not available for Windows, please download the new binaries\n";
+			Log(INFORMATION) << "New binaries can be found at " << url << ", choose Windows\n";
+#else
 			Log(INFORMATION) << "Initiating auto-update\n";
 			IO::download(url, "client.zip");
 			IO::download(url_script, "update.sh");
@@ -543,6 +544,7 @@ void CLI::handleInformResult() {
 	auto id = packet_->getInt();
 	auto file = packet_->getString();
 	auto directory = packet_->getString();
+	auto direct_possible = packet_->getBool();
 	
 	// Make sure the same file is not being written right now
 	for (auto& network : networks_) {
@@ -558,7 +560,7 @@ void CLI::handleInformResult() {
 	auto addresses = getIPAddresses();
 	int port = 30500;
 	
-	if (Base::config().get<bool>("direct", true)) {
+	if (Base::config().get<bool>("direct", true) && direct_possible) {
 		// Find available port
 		while (true) {
 			networks_.emplace_back();
@@ -584,7 +586,7 @@ void CLI::handleInformResult() {
 	
 	Base::network().send(PacketCreator::informResult(true /* accept or decline */, id, port, addresses));
 	
-	if (Base::config().get<bool>("direct", true)) {
+	if (Base::config().get<bool>("direct", true) && direct_possible) {
 		auto& network = networks_.back().network_;		
 		network->acceptConnection();
 		
