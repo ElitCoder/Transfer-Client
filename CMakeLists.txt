@@ -41,6 +41,7 @@ endif (UNIX)
 
 if (WIN32)
 	target_link_libraries(${PROJECT_NAME} ws2_32.lib)
+	target_link_libraries(${PROJECT_NAME} iphlpapi.lib)
 	
 	# Static link for Windows
 	set(CMAKE_EXE_LINKER_FLAGS "-static")

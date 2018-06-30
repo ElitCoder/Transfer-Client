@@ -12,13 +12,22 @@
 
 // Network
 #include <sys/stat.h>
+
+#ifdef WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <iphlpapi.h>
+#else
 #include <ifaddrs.h>
 #include <arpa/inet.h>
+#endif
 
 using namespace std;
 
 #ifdef WIN32
 constexpr auto quick_exit = _exit; // mingw32 does not support quick_exit for now
+
+#pragma comment(lib, "IPHLPAPI.lib")
 #endif
 
 extern string g_protocol_standard;
@@ -43,11 +52,66 @@ static void splitBaseFile(string input, string& base, string& file) {
 	file = input;
 }
 
+#ifdef WIN32
+// From SO
+const char* inet_ntop(int af, const void* src, char* dst, int cnt) {
+    struct sockaddr_in srcaddr;
+ 
+    memset(&srcaddr, 0, sizeof(struct sockaddr_in));
+    memcpy(&(srcaddr.sin_addr), src, sizeof(srcaddr.sin_addr));
+ 
+    srcaddr.sin_family = af;
+	
+    if (WSAAddressToString((struct sockaddr*)&srcaddr, sizeof(struct sockaddr_in), 0, dst, (LPDWORD) &cnt) != 0) {
+        DWORD rv = WSAGetLastError();
+        printf("WSAAddressToString() : %d\n",rv);
+		
+        return NULL;
+    }
+	
+    return dst;
+}
+#endif
+
 // Returns local IP addresses
 // From github.com/wewearglasses
 static vector<string> getIPAddresses() {
-	struct ifaddrs* interfaces = NULL;
 	vector<string> addresses;
+	
+#ifdef WIN32
+	ULONG family = AF_INET;
+	ULONG flags = GAA_FLAG_INCLUDE_PREFIX;
+	ULONG buffer_size = 30000;
+	PIP_ADAPTER_ADDRESSES p_addresses = (IP_ADAPTER_ADDRESSES*)malloc(buffer_size);
+	
+	if (GetAdaptersAddresses(family, flags, NULL, p_addresses, &buffer_size) == ERROR_BUFFER_OVERFLOW)
+		Log(ERROR) << "Could not obtain adapter addresses\n";
+		
+	auto current_address = p_addresses;
+	
+	while (current_address) {
+		auto* address = current_address->FirstUnicastAddress;
+		
+		while (address) {
+			auto family = address->Address.lpSockaddr->sa_family;
+			
+			if (family == AF_INET) {
+				SOCKADDR_IN* ipv4 = reinterpret_cast<SOCKADDR_IN*>(address->Address.lpSockaddr);
+
+		        char str_buffer[INET_ADDRSTRLEN] = {0};
+		        inet_ntop(AF_INET, &(ipv4->sin_addr), str_buffer, INET_ADDRSTRLEN);				
+				addresses.push_back(str_buffer);
+			}
+			
+			address = address->Next;
+		}
+		
+		current_address = current_address->Next;
+	}
+	
+	free(p_addresses);
+#else
+	struct ifaddrs* interfaces = NULL;
 	
 	if (getifaddrs(&interfaces) == 0) {
 		auto* temp = interfaces;
@@ -62,6 +126,8 @@ static vector<string> getIPAddresses() {
 	}
 	
 	freeifaddrs(interfaces);
+#endif
+	
 	return addresses;
 }
 

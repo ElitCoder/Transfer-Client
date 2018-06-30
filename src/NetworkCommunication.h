@@ -79,7 +79,7 @@ private:
     std::list<PartialPacket> partial_packets_;
     
     std::atomic<bool> shutdown_;
-    EventPipe pipe_;
+    std::shared_ptr<EventPipe> pipe_;
 };
 
 #endif

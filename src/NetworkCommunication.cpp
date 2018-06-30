@@ -18,6 +18,7 @@
 #ifdef WIN32
 #include <windows.h>
 #include <winsock2.h>
+#include <ws2tcpip.h>
 #else
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -301,6 +302,8 @@ void NetworkCommunication::acceptConnection() {
 		return;
 	}
 	
+	pipe_ = make_shared<EventPipe>();
+	
 	receive_thread_ = thread(receiveThread, ref(*this));
     send_thread_ = thread(sendThread, ref(*this));
 }
@@ -312,6 +315,8 @@ bool NetworkCommunication::start(const string& hostname, unsigned short port, bo
 		if (!connect(hostname, port, socket_, fast_fail))
 			return false;
 	}
+	
+	pipe_ = make_shared<EventPipe>();
         
     receive_thread_ = thread(receiveThread, ref(*this));
     send_thread_ = thread(sendThread, ref(*this));
@@ -419,30 +424,70 @@ void NetworkCommunication::kill(bool safe) {
 	lock_guard<mutex> out_lock(outgoing_mutex_);
 	
 	shutdown_ = true;
-	pipe_.setPipe();
+	pipe_->setPipe();
 	
 	incoming_cv_.notify_all();
 	outgoing_cv_.notify_all();
 }
 
 EventPipe& NetworkCommunication::getPipe() {
-	return pipe_;
+	return *pipe_;
 }
 
 /*
     EventPipe
 */
 
+#ifdef WIN32
+// From SO
+static void createWindowsPipe(int fds[2]) {
+    struct sockaddr_in inaddr;
+    struct sockaddr addr;
+    SOCKET lst=::socket(AF_INET, SOCK_STREAM,IPPROTO_TCP);
+    memset(&inaddr, 0, sizeof(inaddr));
+    memset(&addr, 0, sizeof(addr));
+    inaddr.sin_family = AF_INET;
+    inaddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    inaddr.sin_port = 0;
+    int yes=1;
+    setsockopt(lst,SOL_SOCKET,SO_REUSEADDR,(char*)&yes,sizeof(yes));
+    bind(lst,(struct sockaddr *)&inaddr,sizeof(inaddr));
+    listen(lst,1);
+    int len=sizeof(inaddr);
+    getsockname(lst, &addr,&len);
+    fds[0]=::socket(AF_INET, SOCK_STREAM,0);
+    connect(fds[0],&addr,len);
+    fds[1]=accept(lst,0,0);
+    closesocket(lst);
+	
+	Log(DEBUG) << "Pipes " << fds[0] << " " << fds[1] << endl;
+}
+#endif
+
 EventPipe::EventPipe() {
     event_mutex_ = make_shared<mutex>();
     
-    if(pipe(mPipes) < 0) {
+	#ifdef WIN32
+	createWindowsPipe(mPipes);
+	int result = 0;
+	#else
+	auto result = pipe(mPipes);
+	#endif
+	
+    if(result < 0) {
         Log(ERROR) << "Failed to create pipe, won't be able to wake threads, errno = " << errno << '\n';
     }
     
+	#ifdef WIN32
+	unsigned long mode = 1;
+	
+	if (ioctlsocket(mPipes[0], FIONBIO, &mode) < 0)
+		Log(WARNING) << "Failed to set pipe non-blocking mode\n";
+	#else
     if(fcntl(mPipes[0], F_SETFL, O_NONBLOCK) < 0) {
         Log(WARNING) << "Failed to set pipe non-blocking mode\n";
     }
+	#endif
 }
 
 EventPipe::~EventPipe() {
@@ -456,8 +501,13 @@ EventPipe::~EventPipe() {
 void EventPipe::setPipe() {
     lock_guard<mutex> lock(*event_mutex_);
     
+#ifdef WIN32
+	if (send(mPipes[1], "0", 1, 0) < 0)
+		Log(ERROR) << "Could not send to Windows pipe\n";
+#else
     if (write(mPipes[1], "0", 1) < 0)
         Log(ERROR) << "Could not write to pipe, errno = " << errno << '\n';
+#endif
 }
 
 void EventPipe::resetPipe() {
