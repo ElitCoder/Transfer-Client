@@ -295,6 +295,8 @@ static void sendThread(NetworkCommunication& network) {
 
 NetworkCommunication::NetworkCommunication() {
 	shutdown_ = false;
+	
+	pipe_ = make_shared<EventPipe>();
 }
 
 NetworkCommunication::~NetworkCommunication() {	
@@ -338,8 +340,6 @@ void NetworkCommunication::acceptConnection() {
 		return;
 	}
 	
-	pipe_ = make_shared<EventPipe>();
-	
 	receive_thread_ = thread(receiveThread, ref(*this));
     send_thread_ = thread(sendThread, ref(*this));
 }
@@ -351,9 +351,7 @@ bool NetworkCommunication::start(const string& hostname, unsigned short port, bo
 		if (!connect(hostname, port, socket_, fast_fail))
 			return false;
 	}
-	
-	pipe_ = make_shared<EventPipe>();
-        
+	        
     receive_thread_ = thread(receiveThread, ref(*this));
     send_thread_ = thread(sendThread, ref(*this));
 	
@@ -503,22 +501,22 @@ static void createWindowsPipe(int fds[2]) {
 EventPipe::EventPipe() {
     event_mutex_ = make_shared<mutex>();
     
-	#ifdef WIN32
+#ifdef WIN32
 	createWindowsPipe(mPipes);
 	int result = 0;
-	#else
+#else
 	auto result = pipe(mPipes);
-	#endif
+#endif
 	
     if(result < 0) {
         Log(ERROR) << "Failed to create pipe, won't be able to wake threads, errno = " << errno << '\n';
     }
     
-	#ifndef WIN32
+#ifndef WIN32
     if(fcntl(mPipes[0], F_SETFL, O_NONBLOCK) < 0) {
         Log(WARNING) << "Failed to set pipe non-blocking mode\n";
     }
-	#endif
+#endif
 }
 
 EventPipe::~EventPipe() {
