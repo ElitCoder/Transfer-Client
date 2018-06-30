@@ -8,24 +8,35 @@
 
 using namespace std;
 
-string g_protocol_standard = "a3";
+string g_protocol_standard = "a4";
+static mutex g_cli_sync_;
 
 static void printStart() {
 	Log(NONE) << "Transfer-Client [alpha] [" << __DATE__ << " @ " << __TIME__ << "]\n";
 	Log(NONE) << "Protocol standard: " << g_protocol_standard << "\n";
 }
 
-static void packetThread() {
+void packetThread(NetworkCommunication& network, string name) {
 	while (true) {
 		// Wait until the Server sends something
-		auto& packet = Base::network().waitForPacket();
-		Base::cli().process(packet);
-		Base::network().completePacket();
-	}
-}
+		auto* packet = network.waitForPacket();
+		
+		// Is shutdown ordered?
+		if (packet == nullptr)
+			break;
+			
+		// Remove old networks if there are any
+		Base::cli().removeOldNetworks(name);
 
-static void cliThread() {
-	Base::cli().start();
+		// Protect CLI using single threading since there might be multiple packet threads
+		g_cli_sync_.lock();
+		Base::cli().process(network, *packet);
+		g_cli_sync_.unlock();
+		
+		network.completePacket();
+	}
+	
+	Log(NETWORK) << "packetThread exiting\n";
 }
 
 static void process() {
@@ -36,11 +47,16 @@ static void process() {
 	
 	Base::network().start(hostname, port);
 	
-	// Process options
-	thread cli_thread(cliThread);
+	auto& network = Base::network();
+	thread network_thread = thread(packetThread, ref(network), "");
 	
-	// Use main thread for receiving packets
-	packetThread();
+	// Run CLI
+	Base::cli().start();
+	
+	network_thread.join();
+	
+	// Kill any remaining old networks
+	Base::cli().removeOldNetworks("");
 }
 
 int main(int argc, char** argv) {

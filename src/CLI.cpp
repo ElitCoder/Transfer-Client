@@ -8,7 +8,12 @@
 #include "Timer.h"
 #include "IO.h"
 
+#include <algorithm>
+
+// Network
 #include <sys/stat.h>
+#include <ifaddrs.h>
+#include <arpa/inet.h>
 
 using namespace std;
 
@@ -36,6 +41,28 @@ static void splitBaseFile(string input, string& base, string& file) {
 	}
 	
 	file = input;
+}
+
+// Returns local IP addresses
+// From github.com/wewearglasses
+static vector<string> getIPAddresses() {
+	struct ifaddrs* interfaces = NULL;
+	vector<string> addresses;
+	
+	if (getifaddrs(&interfaces) == 0) {
+		auto* temp = interfaces;
+		
+		while (temp != NULL) {
+			// Add as an IP if the interface belongs to AF_INET
+			if (temp->ifa_addr->sa_family == AF_INET)
+				addresses.push_back(inet_ntoa(((struct sockaddr_in*)temp->ifa_addr)->sin_addr));
+				
+			temp = temp->ifa_next;
+		}
+	}
+	
+	freeifaddrs(interfaces);
+	return addresses;
 }
 
 static void sendFile(const string& to, string file, string directory, string base) {
@@ -85,6 +112,47 @@ static void sendFile(const string& to, string file, string directory, string bas
 		return;
 	}
 	
+	auto try_direct = answer.getBool();
+	auto num_addresses = answer.getInt();
+	auto port = answer.getInt();
+	
+	vector<string> remote_addresses;
+	shared_ptr<NetworkCommunication> direct_connection = nullptr;
+	
+	Log(DEBUG) << "Direct connection is " << (try_direct ? "enabled" : "disabled") << endl;
+	
+	if (try_direct) {
+		Log(DEBUG) << "Receiving client is waiting at port " << port << endl;
+		
+		for (int i = 0; i < num_addresses; i++) {
+			auto ip = answer.getString();
+			remote_addresses.push_back(ip);
+			
+			Log(DEBUG) << "Available remote address: " << ip << endl;
+			Log(DEBUG) << "Trying " << ip << endl;
+			
+			direct_connection = make_shared<NetworkCommunication>();
+			
+			if (direct_connection->start(ip, port, true))
+				break;
+			else
+				direct_connection = nullptr;
+		}
+	}
+	
+	// What network to use?
+	NetworkCommunication* use_network_;
+	bool direct_connected = false;
+	
+	if (direct_connection == nullptr) {
+		// Use relay, no direct connection succeeded
+		use_network_ = &Base::network();
+	} else {
+		// Use direct connection
+		use_network_ = direct_connection.get();
+		direct_connected = true;
+	}
+	
 	size_t size;
 	
 	try {
@@ -92,6 +160,11 @@ static void sendFile(const string& to, string file, string directory, string bas
 	} catch (...) {
 		return;
 	}
+	
+	thread direct_packet_thread_;
+	
+	if (direct_connected)
+		direct_packet_thread_ = thread(packetThread, ref(*direct_connection), "");
 	
 	Log(DEBUG) << "Sending the file " << base << " + " << directory << " + " << file << endl;
 	Log(DEBUG) << "File size " << size << " bytes\n";
@@ -106,7 +179,13 @@ static void sendFile(const string& to, string file, string directory, string bas
 		// Create Packet inplace for speed
 		Packet packet;
 		packet.addHeader(HEADER_SEND);
-		packet.addString(to);
+		
+		// Bypass server changes to the packets
+		if (direct_connected)
+			packet.addInt(0);
+		else
+			packet.addString(to);
+
 		packet.addString(file);
 		packet.addString(directory);
 		
@@ -114,9 +193,7 @@ static void sendFile(const string& to, string file, string directory, string bas
 		auto& data = packet.internal();
 		auto old_size = data->size();
 		data->resize(data->size() + read_amount + 4);
-		
-		//Log(DEBUG) << "Allocated from " << old_size << " to " << data->size() << endl;
-		
+				
 		unsigned char* data_pointer = data->data() + old_size + 4;
 		
 		file_stream.read((char*)data_pointer, read_amount);
@@ -135,12 +212,11 @@ static void sendFile(const string& to, string file, string directory, string bas
 		packet.addBool(i == 0);
 		packet.finalize();
 		
-		//Log(DEBUG) << "Sending " << actually_read << " bytes, fp: " << i << "\n";
-
-		Base::network().send(packet);
+		use_network_->send(packet);
 		i += actually_read;
-		
+				
 		answer = Base::cli().waitForAnswer();
+		answer.getInt();
 		accepted = answer.getBool();
 		
 		if (!accepted) {
@@ -156,12 +232,13 @@ static void sendFile(const string& to, string file, string directory, string bas
 		}
 	}
 	
+	Log(DEBUG) << "Message EOF to receiver\n";
+
 	// Tell the receiver that we're done
-	Base::network().send(PacketCreator::send(to, file, directory, { 0, nullptr }, false));
-	
-	Log(DEBUG) << "Waiting for finish\n";
-	
+	use_network_->send(PacketCreator::send(to, file, directory, { 0, nullptr }, false, direct_connected));
+		
 	answer = Base::cli().waitForAnswer();
+	answer.getInt();
 	accepted = answer.getBool();
 	
 	auto elapsed_time = timer.restart();
@@ -175,6 +252,15 @@ static void sendFile(const string& to, string file, string directory, string bas
 	Log(DEBUG) << "Speed: " << (static_cast<double>(size) / 1024 / 1024) / elapsed_time << " MB/s\n";
 	
 	Log(NONE) << endl;
+	
+	if (direct_connected) {
+		Log(DEBUG) << "Killing direct connection network\n";
+		direct_connection->kill();
+		direct_packet_thread_.join();
+		Log(DEBUG) << "Killed network\n";
+		
+		Log(NONE) << endl;
+	}
 }
 
 static void sendFiles(const string& to) {
@@ -194,7 +280,18 @@ static void sendFiles(const string& to) {
 	}
 }
 
+// Various test functions for development
+static void test() {
+	auto addresses = getIPAddresses();
+	
+	for (auto& address : addresses)
+		Log(DEBUG) << "Local address: " << address << endl;
+}
+
 void CLI::start() {
+	// TODO: Remove test
+	test();
+	
 	// Remove old update files if they exist
 	remove("client.zip");
 	remove("update.sh");
@@ -264,7 +361,7 @@ void CLI::start() {
 		// To whom?
 		string to = Base::parameter().get("-t").front();
 		sendFiles(to);
-		
+			
 		quick_exit(0);
 	}
 	
@@ -285,10 +382,28 @@ Packet CLI::waitForAnswer() {
 	return packet;
 }
 
-void CLI::process(Packet& packet) {
+void CLI::removeOldNetworks(const string& name) {
+	lock_guard<mutex> lock(old_networks_mutex_);
+	
+	while (!old_networks_.empty()) {
+		auto& network = old_networks_.front();
+		
+		if (network.file_ == name)
+			break;
+				
+		// Join exiting packet thread
+		network.packet_thread_->join();
+				
+		// Erase
+		old_networks_.pop_front();
+	}
+}
+
+void CLI::process(NetworkCommunication& network, Packet& packet) {
 	auto header = packet.getByte();
 	
 	packet_ = &packet;
+	network_ = &network;
 	
 	switch (header) {
 		case HEADER_JOIN: handleJoin();
@@ -307,6 +422,9 @@ void CLI::process(Packet& packet) {
 			break;
 			
 		case HEADER_INITIALIZE: handleInitialize();
+			break;
+			
+		case HEADER_INFORM_RESULT: handleInformResult();
 			break;
 			
 		default: {
@@ -355,8 +473,62 @@ void CLI::handleInform() {
 	notifyWaiting();
 }
 
+void CLI::handleInformResult() {
+	auto id = packet_->getInt();
+	auto file = packet_->getString();
+	auto directory = packet_->getString();
+	
+	// Make sure the same file is not being written right now
+	for (auto& network : networks_) {
+		if (network.file_ == (directory + file)) {
+			Log(ERROR) << "The file " << (directory + file) << " is already being written\n";
+			Base::network().send(PacketCreator::informResult(false /* accept or decline */, id, 0, {}));
+			
+			return;
+		}
+	}
+	
+	// Return a list of available local IPs to see if the clients might be on the same network
+	auto addresses = getIPAddresses();
+	int port = 30500;
+	
+	if (Base::config().get<bool>("direct", true)) {
+		// Find available port
+		while (true) {
+			networks_.emplace_back();
+			networks_.back().network_ = make_shared<NetworkCommunication>();
+			
+			auto& network = networks_.back().network_;
+			
+			if (!network->start("", port, false, true)) {
+				Log(ERROR) << "Hosting failed at port " << port << "\n";
+				
+				networks_.pop_back();
+				port++;
+			} else {
+				Log(DEBUG) << "Hosting successful at port " << port << "\n";
+				
+				break;
+			}
+		}
+	} else {
+		// Signal direct connection is disabled by giving no bind addresses
+		addresses.clear();
+	}
+	
+	Base::network().send(PacketCreator::informResult(true /* accept or decline */, id, port, addresses));
+	
+	if (Base::config().get<bool>("direct", true)) {
+		auto& network = networks_.back().network_;		
+		network->acceptConnection();
+		
+		networks_.back().file_ = directory + file;
+		networks_.back().packet_thread_ = make_shared<thread>(packetThread, ref(*network), networks_.back().file_);
+	}
+}
+
 void CLI::handleSend() {
-	// TODO: Receive file here
+	// TODO: Receive file here	
 	auto id = packet_->getInt();
 	auto file = packet_->getString();
 	auto directory = packet_->getString();
@@ -365,6 +537,7 @@ void CLI::handleSend() {
 	
 	// Add directory
 	file = directory + file;
+	auto original_file = file;
 	
 	// Add folder ID if the option is enabled
 	if (Base::config().has("output_folder"))
@@ -389,7 +562,7 @@ void CLI::handleSend() {
 		}
 
 		// Send result that we're done before flushing
-		Base::network().send(PacketCreator::sendResult(id, true));
+		network_->send(PacketCreator::sendResult(id, true));
 
 		if (iterator != file_streams_.end()) {
 			Log(DEBUG) << "Flushing..\n";
@@ -400,6 +573,24 @@ void CLI::handleSend() {
 			file_streams_.erase(file);
 			
 			Log(DEBUG) << "Done\n";
+		}
+		
+		// Kill network if it's sent over direct connection
+		for (auto& network : networks_) {
+			if (network.file_ == original_file) {
+				Log(DEBUG) << "Kill direct connection network " << original_file << endl;
+				
+				network.network_->kill(true);
+				
+				lock_guard<mutex> lock(old_networks_mutex_);
+				old_networks_.push_back(network);
+				
+				networks_.erase(remove_if(networks_.begin(), networks_.end(), [&original_file] (auto& element) {
+					return element.file_ == original_file;
+				}), networks_.end());
+				
+				break;
+			}
 		}
 		
 		return;
@@ -416,6 +607,16 @@ void CLI::handleSend() {
 		
 		// Create directory if it does not exist
 		IO::createDirectory(Base::config().get<string>("output_folder", "") + "/" + directory);
+		
+		// See if file stream already exists, if it does we should not try to write to the same file
+		auto iterator = file_streams_.find(file);
+		
+		if (iterator != file_streams_.end()) {
+			Log(WARNING) << "File " << file << " already exists, disabling write\n";
+			
+			network_->send(PacketCreator::sendResult(id, false));
+			return;
+		}
 		
 		// Remove any existing files
 		remove(file.c_str());
@@ -454,7 +655,7 @@ void CLI::handleSend() {
 	file_stream->write((const char*)bytes.second, bytes.first);
 	
 	// Send OK to sender
-	Base::network().send(PacketCreator::sendResult(id, true));
+	network_->send(PacketCreator::sendResult(id, true));
 }
 
 void CLI::handleSendResult() {

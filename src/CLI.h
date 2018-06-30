@@ -7,19 +7,32 @@
 #include <memory>
 #include <unordered_map>
 #include <fstream>
+#include <vector>
+#include <thread>
+#include <list>
 
 enum {
 	ERROR_OLD_PROTOCOL
 };
 
 class Packet;
+class NetworkCommunication;
+
+struct HostNetwork {
+	std::shared_ptr<NetworkCommunication> network_;
+	std::shared_ptr<std::thread> packet_thread_;
+	
+	std::string file_;
+};
 
 class CLI {
 public:
 	void start();
-	void process(Packet& packet);
+	void process(NetworkCommunication& network, Packet& packet);
 	
 	Packet waitForAnswer();
+	
+	void removeOldNetworks(const std::string& name);
 	
 private:
 	void handleJoin();
@@ -28,16 +41,28 @@ private:
 	void handleSend();
 	void handleSendResult();
 	void handleInitialize();
+	void handleInformResult();
 	
 	void notifyWaiting();
 	
-	Packet* packet_ = nullptr;
+	Packet* packet_ 				= nullptr;
+	NetworkCommunication* network_	= nullptr;
 	
 	std::condition_variable answer_cv_;
 	std::mutex answer_mutex_;
 	std::shared_ptr<Packet> answer_packet_ = nullptr;
 	
 	std::unordered_map<std::string, std::shared_ptr<std::ofstream>> file_streams_;
+	
+	std::vector<HostNetwork> networks_;
+	
+	// Packet threads to be killed, but couldn't since they were processing the packet which killed them
+	// Needs to be joined by another thread
+	std::mutex old_networks_mutex_;
+	std::list<HostNetwork> old_networks_;
 };
+
+// Start different packetThreads for direct connections
+void packetThread(NetworkCommunication& network, std::string name);
 
 #endif

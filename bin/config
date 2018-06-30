@@ -8,5 +8,8 @@ output_folder: files
 host: localhost
 port: 12000
 
+# Direct connection
+direct: 1
+
 # File transfer buffer (bytes) (no performance increases over ~ 8 MB)
 buffer_size: 8388608
