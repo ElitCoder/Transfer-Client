@@ -46,8 +46,13 @@ static bool hostConnection(int& server_socket, unsigned short port) {
     
     if(setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<char*>(&on), sizeof(on)) < 0) {
         Log(ERROR) << "Not reusable address\n";
-        
+
+#ifdef WIN32
+		closesocket(server_socket);
+#else
 		close(server_socket);
+#endif
+
         return false;
     }
 	
@@ -56,10 +61,15 @@ static bool hostConnection(int& server_socket, unsigned short port) {
     socketInformation.sin_addr.s_addr = INADDR_ANY;
     socketInformation.sin_port = htons(port);
     
-    if(bind(server_socket, reinterpret_cast<sockaddr*>(&socketInformation), sizeof(socketInformation)) < 0) {
+    if(::bind(server_socket, reinterpret_cast<sockaddr*>(&socketInformation), sizeof(socketInformation)) < 0) {
         Log(ERROR) << "bind() failed\n";
         
-        close(server_socket);
+#ifdef WIN32
+		closesocket(server_socket);
+#else
+		close(server_socket);
+#endif
+
         return false;
     }
 	
@@ -68,7 +78,12 @@ static bool hostConnection(int& server_socket, unsigned short port) {
 	if(getsockname(server_socket, reinterpret_cast<sockaddr*>(&socketInformation), reinterpret_cast<socklen_t*>(&socketInformationSize)) < 0) {
         Log(ERROR) << "Could not get address information\n";
         
-        close(server_socket);
+#ifdef WIN32
+		closesocket(server_socket);
+#else
+		close(server_socket);
+#endif
+
         return false;
 	}
 	
@@ -134,8 +149,11 @@ static bool connect(const string& hostname, unsigned short port, int& server_soc
 		
 		// Only allow one connection attempt in fast fail mode
 		if (fast_fail) {
+#ifdef WIN32
+			closesocket(server_socket);
+#else
 			close(server_socket);
-						
+#endif
 			return false;
 		}
         
@@ -207,8 +225,12 @@ static void receiveThread(NetworkCommunication& network) {
 			break;
 
 		// Shutdown
-		if (FD_ISSET(network.getPipe().getSocket(), &readSet))
+		if (FD_ISSET(network.getPipe().getSocket(), &readSet)) {
+#ifdef WIN32
+			Log(DEBUG) << "Pipe was set, breaking receiveThread\n";
+#endif
 			break;
+		}
 		
 #ifdef WIN32
 		int received = recv(network.getSocket(), (char*)buffer.data(), NetworkConstants::BUFFER_SIZE, 0);
@@ -284,11 +306,21 @@ NetworkCommunication::~NetworkCommunication() {
 	if (send_thread_.joinable())
 		send_thread_.join();
 				
-	if (socket_ >= 0)
+	if (socket_ >= 0) {
+#ifdef WIN32
+		closesocket(socket_);
+#else
 		close(socket_);
+#endif
+	}
 	
-	if (host_socket_ >= 0)
+	if (host_socket_ >= 0) {
+#ifdef WIN32
+		closesocket(host_socket_);
+#else
 		close(host_socket_);
+#endif
+	}
 }
 
 void NetworkCommunication::acceptConnection() {
@@ -297,7 +329,11 @@ void NetworkCommunication::acceptConnection() {
 	if (socket_ < 0) {
 		Log(WARNING) << "accept() failed\n";
 		
+#ifdef WIN32
+		closesocket(host_socket_);
+#else
 		close(host_socket_);
+#endif
 		host_socket_ = -1;
 		return;
 	}
@@ -478,12 +514,7 @@ EventPipe::EventPipe() {
         Log(ERROR) << "Failed to create pipe, won't be able to wake threads, errno = " << errno << '\n';
     }
     
-	#ifdef WIN32
-	unsigned long mode = 1;
-	
-	if (ioctlsocket(mPipes[0], FIONBIO, &mode) < 0)
-		Log(WARNING) << "Failed to set pipe non-blocking mode\n";
-	#else
+	#ifndef WIN32
     if(fcntl(mPipes[0], F_SETFL, O_NONBLOCK) < 0) {
         Log(WARNING) << "Failed to set pipe non-blocking mode\n";
     }
@@ -491,18 +522,30 @@ EventPipe::EventPipe() {
 }
 
 EventPipe::~EventPipe() {
-    if (mPipes[0] >= 0)
-        close(mPipes[0]);
+    if (mPipes[0] >= 0) {
+#ifdef WIN32
+		closesocket(mPipes[0]);
+#else
+		close(mPipes[0]);
+#endif
+	}
     
-    if (mPipes[1] >= 0)
-        close(mPipes[1]);
+    if (mPipes[1] >= 0) {
+#ifdef WIN32
+		closesocket(mPipes[1]);
+#else
+		close(mPipes[1]);
+#endif
+	}
 }
 
 void EventPipe::setPipe() {
     lock_guard<mutex> lock(*event_mutex_);
     
 #ifdef WIN32
-	if (send(mPipes[1], "0", 1, 0) < 0)
+	const char* buffer = "0";
+	
+	if (send(mPipes[1], buffer, 1, 0) < 0)
 		Log(ERROR) << "Could not send to Windows pipe\n";
 #else
     if (write(mPipes[1], "0", 1) < 0)
@@ -514,9 +557,13 @@ void EventPipe::resetPipe() {
     lock_guard<mutex> lock(*event_mutex_);
     
     unsigned char buffer;
-
+#ifdef WIN32
+	while (recv(mPipes[0], (char*)&buffer, 1, 0) == 1)
+		;
+#else
     while(read(mPipes[0], &buffer, 1) == 1)
         ;
+#endif
 }
 
 int EventPipe::getSocket() {
