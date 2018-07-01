@@ -8,7 +8,7 @@
 
 using namespace std;
 
-string g_protocol_standard = "a5";
+string g_protocol_standard = "a6";
 static mutex g_cli_sync_;
 
 static void printStart() {
@@ -16,7 +16,10 @@ static void printStart() {
 	Log(NONE) << "Protocol standard: " << g_protocol_standard << "\n";
 }
 
-void packetThread(NetworkCommunication& network, string name) {
+void packetThread(NetworkCommunication& network, string name, bool do_accept) {
+	if (do_accept)
+		network.acceptConnection();
+
 	while (true) {
 		// Wait until the Server sends something
 		auto* packet = network.waitForPacket();
@@ -48,7 +51,7 @@ static void process() {
 	Base::network().start(hostname, port);
 	
 	auto& network = Base::network();
-	thread network_thread = thread(packetThread, ref(network), "");
+	thread network_thread = thread(packetThread, ref(network), "", false);
 	
 	// Run CLI
 	Base::cli().start();

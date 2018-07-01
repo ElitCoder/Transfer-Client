@@ -137,7 +137,17 @@ static void sendFile(const string& to, string file, string directory, string bas
 	if (directory.empty())
 		full_path = base + file;
 	
-	if (IO::isDirectory(full_path)) {
+	bool is_directory;
+	
+	try {
+		is_directory = IO::isDirectory(full_path);
+	} catch (...) {
+		Log(WARNING) << "File " << full_path << " does not exist, skipping\n";
+		
+		return;
+	}
+	
+	if (is_directory) {
 		auto recursive = Base::parameter().has("-r");
 
 		if (!recursive) {
@@ -213,6 +223,9 @@ static void sendFile(const string& to, string file, string directory, string bas
 	if (direct_connection == nullptr) {
 		// Use relay, no direct connection succeeded
 		use_network_ = &Base::network();
+		
+		if (try_direct)
+			Log(WARNING) << "Direct connection was not successful, reverting to relay\n";
 	} else {
 		// Use direct connection
 		use_network_ = direct_connection.get();
@@ -230,7 +243,7 @@ static void sendFile(const string& to, string file, string directory, string bas
 	thread direct_packet_thread_;
 	
 	if (direct_connected)
-		direct_packet_thread_ = thread(packetThread, ref(*direct_connection), "");
+		direct_packet_thread_ = thread(packetThread, ref(*direct_connection), "", false);
 	
 	Log(DEBUG) << "Sending the file " << base << " + " << directory << " + " << file << endl;
 	Log(DEBUG) << "File size " << size << " bytes\n";
@@ -587,11 +600,10 @@ void CLI::handleInformResult() {
 	Base::network().send(PacketCreator::informResult(true /* accept or decline */, id, port, addresses));
 	
 	if (Base::config().get<bool>("direct", true) && direct_possible) {
-		auto& network = networks_.back().network_;		
-		network->acceptConnection();
-		
+		auto& network = networks_.back().network_;
+				
 		networks_.back().file_ = directory + file;
-		networks_.back().packet_thread_ = make_shared<thread>(packetThread, ref(*network), networks_.back().file_);
+		networks_.back().packet_thread_ = make_shared<thread>(packetThread, ref(*network), networks_.back().file_, true);
 	}
 }
 

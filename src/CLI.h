@@ -63,6 +63,6 @@ private:
 };
 
 // Start different packetThreads for direct connections
-void packetThread(NetworkCommunication& network, std::string name);
+void packetThread(NetworkCommunication& network, std::string name, bool do_accept);
 
 #endif

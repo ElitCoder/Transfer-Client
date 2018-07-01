@@ -53,11 +53,8 @@ void IO::download(const string& url, const string& name) {
 bool IO::isDirectory(const string& path) {
 	struct stat stats;
 	
-	if (stat(path.c_str(), &stats) != 0) {
-		Log(WARNING) << "stat() failed\n";
-		
-		return false;
-	}
+	if (stat(path.c_str(), &stats) != 0)		
+		throw exception();
 	
 	return stats.st_mode & S_IFDIR;
 }

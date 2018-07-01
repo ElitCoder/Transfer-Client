@@ -93,16 +93,6 @@ static bool hostConnection(int& server_socket, unsigned short port) {
 }
 
 static bool connect(const string& hostname, unsigned short port, int& server_socket, bool fast_fail) {
-#ifdef WIN32
-	WSADATA wsa_data;
-
-	if (WSAStartup(MAKEWORD(2, 2), &wsa_data) != 0) {
-		Log(ERROR) << "WSAStartup() failed\n";
-
-		return false;
-	}
-#endif
-		
     server_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     
     if (server_socket < 0) {
@@ -226,9 +216,8 @@ static void receiveThread(NetworkCommunication& network) {
 
 		// Shutdown
 		if (FD_ISSET(network.getPipe().getSocket(), &readSet)) {
-#ifdef WIN32
-			Log(DEBUG) << "Pipe was set, breaking receiveThread\n";
-#endif
+			network.getPipe().resetPipe();
+
 			break;
 		}
 		
@@ -296,6 +285,16 @@ static void sendThread(NetworkCommunication& network) {
 NetworkCommunication::NetworkCommunication() {
 	shutdown_ = false;
 	
+#ifdef WIN32
+	WSADATA wsa_data;
+
+	if (WSAStartup(MAKEWORD(2, 2), &wsa_data) != 0) {
+		Log(ERROR) << "WSAStartup() failed\n";
+
+		return;
+	}
+#endif
+	
 	pipe_ = make_shared<EventPipe>();
 }
 
@@ -326,6 +325,33 @@ NetworkCommunication::~NetworkCommunication() {
 }
 
 void NetworkCommunication::acceptConnection() {
+	// Do select so it's possible to interrupt
+	fd_set readSet;
+	fd_set errorSet;
+	
+	FD_ZERO(&readSet);
+	FD_ZERO(&errorSet);
+	
+	FD_SET(host_socket_, &readSet);
+	FD_SET(host_socket_, &errorSet);
+	
+	FD_SET(pipe_->getSocket(), &readSet);
+	FD_SET(pipe_->getSocket(), &errorSet);
+	
+	if (select(FD_SETSIZE, &readSet, NULL, &errorSet, NULL) <= 0) {
+		Log(WARNING) << "select() in acceptConnection failed\n";
+		
+		Log(DEBUG) << strerror(errno) << endl;
+		
+		return;
+	}
+	
+	if (FD_ISSET(pipe_->getSocket(), &readSet)) {
+		pipe_->resetPipe();
+		
+		return;
+	}
+
 	socket_ = accept(host_socket_, 0, 0);
 	
 	if (socket_ < 0) {
@@ -340,6 +366,8 @@ void NetworkCommunication::acceptConnection() {
 		return;
 	}
 	
+	Log(DEBUG) << "Connection accepted\n";
+	
 	receive_thread_ = thread(receiveThread, ref(*this));
     send_thread_ = thread(sendThread, ref(*this));
 }
@@ -351,7 +379,7 @@ bool NetworkCommunication::start(const string& hostname, unsigned short port, bo
 		if (!connect(hostname, port, socket_, fast_fail))
 			return false;
 	}
-	        
+	
     receive_thread_ = thread(receiveThread, ref(*this));
     send_thread_ = thread(sendThread, ref(*this));
 	
@@ -444,7 +472,7 @@ void NetworkCommunication::popOutgoingPacket() {
 }
 
 void NetworkCommunication::kill(bool safe) {
-	// Shutdown already called
+	// Shutdown is already called
 	if (shutdown_)
 		return;
 		
@@ -485,16 +513,14 @@ static void createWindowsPipe(int fds[2]) {
     inaddr.sin_port = 0;
     int yes=1;
     setsockopt(lst,SOL_SOCKET,SO_REUSEADDR,(char*)&yes,sizeof(yes));
-    bind(lst,(struct sockaddr *)&inaddr,sizeof(inaddr));
+    bind(lst,(struct sockaddr *)&inaddr,sizeof(inaddr));	
     listen(lst,1);
     int len=sizeof(inaddr);
     getsockname(lst, &addr,&len);
     fds[0]=::socket(AF_INET, SOCK_STREAM,0);
-    connect(fds[0],&addr,len);
+	connect(fds[0],&addr,len);
     fds[1]=accept(lst,0,0);
-    closesocket(lst);
-	
-	Log(DEBUG) << "Pipes " << fds[0] << " " << fds[1] << endl;
+    closesocket(lst);	
 }
 #endif
 
@@ -507,34 +533,52 @@ EventPipe::EventPipe() {
 #else
 	auto result = pipe(mPipes);
 #endif
-	
+
     if(result < 0) {
         Log(ERROR) << "Failed to create pipe, won't be able to wake threads, errno = " << errno << '\n';
     }
     
-#ifndef WIN32
+#ifdef WIN32
+	unsigned long mode = 1;
+
+	if (ioctlsocket(mPipes[0], FIONBIO, &mode) < 0)
+		Log(WARNING) << "Failed to set reading pipe non-blocking mode\n";
+		
+	if (ioctlsocket(mPipes[1], FIONBIO, &mode) < 0)
+		Log(WARNING) << "Failed to set writing pipe non-blocking mode\n";
+#else
     if(fcntl(mPipes[0], F_SETFL, O_NONBLOCK) < 0) {
-        Log(WARNING) << "Failed to set pipe non-blocking mode\n";
+        Log(WARNING) << "Failed to set reading pipe non-blocking mode\n";
+    }
+	
+	if(fcntl(mPipes[1], F_SETFL, O_NONBLOCK) < 0) {
+        Log(WARNING) << "Failed to set writing pipe non-blocking mode\n";
     }
 #endif
+
+	Log(DEBUG) << "Pipes " << mPipes[0] << " " << mPipes[1] << endl;
 }
 
 EventPipe::~EventPipe() {
     if (mPipes[0] >= 0) {
 #ifdef WIN32
 		closesocket(mPipes[0]);
+		mPipes[0] = -1;
 #else
 		close(mPipes[0]);
+		mPipes[0] = -1;
 #endif
 	}
     
     if (mPipes[1] >= 0) {
 #ifdef WIN32
 		closesocket(mPipes[1]);
+		mPipes[1] = -1;
 #else
 		close(mPipes[1]);
+		mPipes[1] = -1;
 #endif
-	}
+	}	
 }
 
 void EventPipe::setPipe() {
@@ -543,10 +587,10 @@ void EventPipe::setPipe() {
 #ifdef WIN32
 	const char* buffer = "0";
 	
-	if (send(mPipes[1], buffer, 1, 0) < 0)
+	if (send(mPipes[1], buffer, 1, 0) <= 0)
 		Log(ERROR) << "Could not send to Windows pipe\n";
 #else
-    if (write(mPipes[1], "0", 1) < 0)
+    if (write(mPipes[1], "0", 1) <= 0)
         Log(ERROR) << "Could not write to pipe, errno = " << errno << '\n';
 #endif
 }
