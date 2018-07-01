@@ -6,7 +6,13 @@
 #include "CLI.h"
 #include "Parameter.h"
 
+#include <signal.h>
+
 using namespace std;
+
+#ifdef WIN32
+constexpr auto quick_exit = _exit; // mingw32 does not support quick_exit for now
+#endif
 
 string g_protocol_standard = "a7";
 static mutex g_cli_sync_;
@@ -62,7 +68,17 @@ static void process() {
 	Base::cli().removeOldNetworks("");
 }
 
+void handler(int unused) {
+	if (unused) {}
+	
+	Log(DEBUG) << "Terminating using handler and quick_exit\n";
+	
+	quick_exit(0);
+}
+
 int main(int argc, char** argv) {
+	signal(SIGINT, handler);
+	
 	printStart();
 	
 	Base::config().parse("config");
