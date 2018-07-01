@@ -131,6 +131,45 @@ static vector<string> getIPAddresses() {
 	return addresses;
 }
 
+static size_t lexicograpicallyCompare(const string& reference, const string& element) {
+	for (size_t i = 0; i < min(reference.length(), element.length()); i++) {
+		if (reference.at(i) != element.at(i))
+			return i;
+	}
+	
+	return min(reference.length(), element.length());
+}
+
+static void sortMostLikelyIP(const vector<string>& own_ips, vector<string>& remote_ips) {
+	// IPs which probably should be tried last
+	// All connections to clients running on the same computer will succeed, so try localhost last
+	vector<string> ignore = { "127.0.0.1" };
+	vector<vector<string>> sorted;
+	
+	for (size_t i = 0; i < own_ips.size(); i++) {
+		auto& ip = own_ips.at(i);
+		
+		// Ignore if it's a member of ignore
+		if (find_if(ignore.begin(), ignore.end(), [&ip] (auto& ignore_ip) { return ignore_ip == ip; }) != ignore.end())
+			continue;
+
+		auto remote_sorted = remote_ips;
+		sort(remote_sorted.begin(), remote_sorted.end(), [&ip] (auto& first, auto& second) {
+			// Compare first and second vs ip lexicograpically
+			size_t match_first = lexicograpicallyCompare(ip, first);
+			size_t match_second = lexicograpicallyCompare(ip, second);
+						
+			return match_first > match_second;
+		});
+		
+		sorted.push_back(remote_sorted);
+	}
+	
+	// Always pick the first sorted vector, because fuck it
+	if (!sorted.empty())
+		remote_ips = sorted.front();
+}
+
 static void sendFile(const string& to, string file, string directory, string base) {
 	string full_path = base + directory + file;
 	
@@ -199,10 +238,17 @@ static void sendFile(const string& to, string file, string directory, string bas
 	
 	if (try_direct) {
 		Log(DEBUG) << "Receiving client is waiting at port " << port << endl;
-		
+				
 		for (int i = 0; i < num_addresses; i++) {
 			auto ip = answer.getString();
 			remote_addresses.push_back(ip);
+		}
+		
+		// Sort local IPs based on most likely to be connected
+		sortMostLikelyIP(getIPAddresses(), remote_addresses);
+		
+		for (size_t i = 0; i < remote_addresses.size(); i++) {
+			auto& ip = remote_addresses.at(i);
 			
 			Log(DEBUG) << "Available remote address: " << ip << endl;
 			Log(DEBUG) << "Trying " << ip << endl;
