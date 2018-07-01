@@ -22,7 +22,10 @@ struct HostNetwork {
 	std::shared_ptr<NetworkCommunication> network_;
 	std::shared_ptr<std::thread> packet_thread_;
 	
+	int id_;
 	std::string file_;
+	
+	std::string file_stream_name_;
 };
 
 class CLI {
@@ -42,6 +45,7 @@ private:
 	void handleSendResult();
 	void handleInitialize();
 	void handleInformResult();
+	void handleClientDisconnect();
 	
 	void notifyWaiting();
 	

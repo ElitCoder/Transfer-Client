@@ -470,6 +470,9 @@ void CLI::removeOldNetworks(const string& name) {
 		
 		if (network.file_ == name)
 			break;
+			
+		// Kill
+		network.network_->kill(true);
 				
 		// Join exiting packet thread
 		network.packet_thread_->join();
@@ -505,6 +508,9 @@ void CLI::process(NetworkCommunication& network, Packet& packet) {
 			break;
 			
 		case HEADER_INFORM_RESULT: handleInformResult();
+			break;
+			
+		case HEADER_CLIENT_DISCONNECT: handleClientDisconnect();
 			break;
 			
 		default: {
@@ -602,6 +608,8 @@ void CLI::handleInformResult() {
 	if (Base::config().get<bool>("direct", true) && direct_possible) {
 		auto& network = networks_.back().network_;
 				
+		networks_.back().file_stream_name_ = "";
+		networks_.back().id_ = id;
 		networks_.back().file_ = directory + file;
 		networks_.back().packet_thread_ = make_shared<thread>(packetThread, ref(*network), networks_.back().file_, true);
 	}
@@ -705,6 +713,15 @@ void CLI::handleSend() {
 		
 		// Add file stream to cache
 		file_streams_[file] = stream_pointer;
+		
+		// Set file stream name to network if it's direct connected
+		for (auto& network : networks_) {
+			if (network.file_ == original_file) {
+				network.file_stream_name_ = file;
+				
+				break;
+			}
+		}
 	}
 	
 	// Find stream in cache
@@ -744,4 +761,34 @@ void CLI::handleSendResult() {
 
 void CLI::handleInitialize() {
 	notifyWaiting();
+}
+
+void CLI::handleClientDisconnect() {
+	auto id = packet_->getInt();
+	
+	networks_.erase(remove_if(networks_.begin(), networks_.end(), [this, &id] (auto& network) {
+		if (id != network.id_)
+			return false;
+		
+		Log(DEBUG) << "Disconnecting user " << id << " with network " << network.file_ << endl;
+		
+		// We have a network connected to id
+		network.network_->kill();
+		
+		lock_guard<mutex> lock(old_networks_mutex_);
+		old_networks_.push_back(network);
+		
+		// Close file descriptor with name file_stream_name_
+		auto iterator = file_streams_.find(network.file_stream_name_);
+		
+		if (iterator != file_streams_.end()) {
+			iterator->second->close();
+			
+			file_streams_.erase(network.file_stream_name_);
+		} else {
+			Log(DEBUG) << "Could not find file stream with the disconnecting ID, possibly the transfer was not initiated\n";
+		}
+		
+		return true;
+	}), networks_.end());
 }

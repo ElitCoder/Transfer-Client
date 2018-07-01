@@ -8,7 +8,7 @@
 
 using namespace std;
 
-string g_protocol_standard = "a6";
+string g_protocol_standard = "a7";
 static mutex g_cli_sync_;
 
 static void printStart() {
