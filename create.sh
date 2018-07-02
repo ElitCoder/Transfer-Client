@@ -39,7 +39,7 @@ else
 		# create windows client
 		mkdir build; cd build
 		cmake -DCMAKE_TOOLCHAIN_FILE=../toolchain-windows-mingw32.cmake ..
-		cmake --build .
+		make -j 4
 		
 		if [ $? -ne 0 ]; then
 			exit 1
