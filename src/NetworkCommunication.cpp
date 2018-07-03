@@ -555,8 +555,6 @@ EventPipe::EventPipe() {
         Log(WARNING) << "Failed to set writing pipe non-blocking mode\n";
     }
 #endif
-
-	Log(DEBUG) << "Pipes " << mPipes[0] << " " << mPipes[1] << endl;
 }
 
 EventPipe::~EventPipe() {

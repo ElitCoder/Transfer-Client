@@ -141,36 +141,41 @@ static size_t lexicograpicallyCompare(const string& reference, const string& ele
 }
 
 static void sortMostLikelyIP(const vector<string>& own_ips, vector<string>& remote_ips) {
-	// IPs which probably should be tried last
-	// All connections to clients running on the same computer will succeed, so try localhost last
-	vector<string> ignore = { "127.0.0.1" };
-	vector<vector<string>> sorted;
-	
-	for (size_t i = 0; i < own_ips.size(); i++) {
-		auto& ip = own_ips.at(i);
-		
-		// Ignore if it's a member of ignore
-		if (find_if(ignore.begin(), ignore.end(), [&ip] (auto& ignore_ip) { return ignore_ip == ip; }) != ignore.end())
-			continue;
+	vector<string> possible_lan = { "192.168", "10." };
+	vector<string> filtered_own;
 
-		auto remote_sorted = remote_ips;
-		sort(remote_sorted.begin(), remote_sorted.end(), [&ip] (auto& first, auto& second) {
-			// Compare first and second vs ip lexicograpically
-			size_t match_first = lexicograpicallyCompare(ip, first);
-			size_t match_second = lexicograpicallyCompare(ip, second);
-						
-			return match_first > match_second;
-		});
-		
-		sorted.push_back(remote_sorted);
+	// See if we use some of these possible LAN IPs
+	for (auto& ip : own_ips) {
+		for (auto& possible : possible_lan) {
+			auto matched = lexicograpicallyCompare(ip, possible);
+			
+			// Needs to match the full template in order to register as possible "LAN"
+			if (matched == possible.length())
+				filtered_own.push_back(ip);
+		}
 	}
 	
-	// Always pick the first sorted vector, because fuck it
-	if (!sorted.empty())
-		remote_ips = sorted.front();
+	// Go through remote IPs and sort them if they match with filtered
+	sort(remote_ips.begin(), remote_ips.end(), [&filtered_own] (auto& first, auto& second) {
+		size_t best_first = 0;
+		size_t best_second = 0;
+		
+		for (auto& filtered : filtered_own) {
+			auto match_first = lexicograpicallyCompare(filtered, first);
+			auto match_second = lexicograpicallyCompare(filtered, second);
+			
+			if (match_first > best_first)
+				best_first = match_first;
+			
+			if (match_second > best_second)
+				best_second = match_second;
+		}
+		
+		return best_first > best_second;
+	});
 }
 
-static void sendFile(const string& to, string file, string directory, string base) {
+static void sendFile(const string& to, string file, string directory, string base, unordered_map<string, bool>& connect_results) {
 	string full_path = base + directory + file;
 	
 	if (directory.empty())
@@ -209,7 +214,7 @@ static void sendFile(const string& to, string file, string directory, string bas
 			string path = recursive_file;
 			string new_base = "";
 						
-			sendFile(to, path, directory + file + "/", base);
+			sendFile(to, path, directory + file + "/", base, connect_results);
 		}
 		
 		// We're done with this file
@@ -242,6 +247,8 @@ static void sendFile(const string& to, string file, string directory, string bas
 		for (int i = 0; i < num_addresses; i++) {
 			auto ip = answer.getString();
 			remote_addresses.push_back(ip);
+			
+			Log(DEBUG) << "Remote address " << ip << endl;
 		}
 		
 		// Sort local IPs based on most likely to be connected
@@ -250,15 +257,28 @@ static void sendFile(const string& to, string file, string directory, string bas
 		for (size_t i = 0; i < remote_addresses.size(); i++) {
 			auto& ip = remote_addresses.at(i);
 			
-			Log(DEBUG) << "Available remote address: " << ip << endl;
+			// See if this IP is unreachable
+			auto unreachable = connect_results.find(ip);
+			
+			if (unreachable != connect_results.end()) {
+				Log(DEBUG) << "Skipping IP " << ip << endl;
+				
+				continue;
+			}
+			
 			Log(DEBUG) << "Trying " << ip << endl;
 			
 			direct_connection = make_shared<NetworkCommunication>();
 			
-			if (direct_connection->start(ip, port, true))
+			if (direct_connection->start(ip, port, true)) {
+				// Works
 				break;
-			else
+			} else {
 				direct_connection = nullptr;
+				
+				// Add to known IPs to fail
+				connect_results[ip] = false;
+			}
 		}
 	}
 	
@@ -356,8 +376,6 @@ static void sendFile(const string& to, string file, string directory, string bas
 			Log(DEBUG) << "Current speed: " << (static_cast<double>(i) / 1024 / 1024) / elapsed_time << " MB/s\n";
 		}
 	}
-	
-	Log(DEBUG) << "Message EOF to receiver\n";
 
 	// Tell the receiver that we're done
 	use_network_->send(PacketCreator::send(to, file, directory, { 0, nullptr }, false, direct_connected));
@@ -376,19 +394,19 @@ static void sendFile(const string& to, string file, string directory, string bas
 	Log(DEBUG) << "Elapsed time: " << elapsed_time << " seconds\n";
 	Log(DEBUG) << "Speed: " << (static_cast<double>(size) / 1024 / 1024) / elapsed_time << " MB/s\n";
 	
-	Log(NONE) << endl;
+	//Log(NONE) << endl;
 	
 	if (direct_connected) {
-		Log(DEBUG) << "Killing direct connection network\n";
+		//Log(DEBUG) << "Killing direct connection network\n";
 		direct_connection->kill();
 		direct_packet_thread_.join();
-		Log(DEBUG) << "Killed network\n";
+		//Log(DEBUG) << "Killed network\n";
 		
-		Log(NONE) << endl;
+		//Log(NONE) << endl;
 	}
 }
 
-static void sendFiles(const string& to) {
+static void sendFiles(const string& to, unordered_map<string, bool>& connect_results) {
 	auto& files = Base::parameter().get("-s");
 	
 	for (auto& file : files) {
@@ -401,7 +419,7 @@ static void sendFiles(const string& to) {
 		string base = "";
 		splitBaseFile(file_copy, base, file_copy);
 		
-		sendFile(to, file_copy, "", base);
+		sendFile(to, file_copy, "", base, connect_results);
 	}
 }
 
@@ -486,7 +504,7 @@ void CLI::start() {
 		
 		// To whom?
 		string to = Base::parameter().get("-t").front();
-		sendFiles(to);
+		sendFiles(to, connect_results_);
 			
 		quick_exit(0);
 	}

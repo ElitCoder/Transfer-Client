@@ -64,6 +64,9 @@ private:
 	// Needs to be joined by another thread
 	std::mutex old_networks_mutex_;
 	std::list<HostNetwork> old_networks_;
+	
+	// What direct connected IPs was successful
+	std::unordered_map<std::string, bool> connect_results_;
 };
 
 // Start different packetThreads for direct connections
