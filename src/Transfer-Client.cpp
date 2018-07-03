@@ -78,7 +78,15 @@ void handler(int unused) {
 
 int main(int argc, char** argv) {
 	signal(SIGINT, handler);
+	signal(SIGTERM, handler);
 	
+#ifdef SIGBREAK
+	// Make sure closing the cmd-window on Windows won't cause any problems
+	signal(SIGBREAK, handler);
+	
+	Log(DEBUG) << "System is using SIGBREAK handler\n";
+#endif
+
 	printStart();
 	
 	Base::config().parse("config");
