@@ -7,10 +7,7 @@
 
 class IO {
 public:
-#ifndef WIN32
 	static void download(const std::string& url, const std::string& name);
-#endif
-
 	static bool isDirectory(const std::string& path);
 	static std::vector<std::string> listDirectory(const std::string& path);
 	static size_t getSize(const std::string& path);

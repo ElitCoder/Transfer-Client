@@ -5,50 +5,20 @@
 #include <fstream>
 #include <dirent.h>
 
-#ifndef WIN32
-#include <curl/curl.h>	// Not for Windows right now
-#endif
-
 #ifdef WIN32
 #include <direct.h>    // For _mkdir in Windows
 #endif
 
 using namespace std;
 
-#ifndef WIN32
 void IO::download(const string& url, const string& name) {
-	CURL* curl = curl_easy_init();
-	
-	if (!curl) {
-		Log(WARNING) << "curl could not be initialized, auto-update is not available\n";
-		
-		return;
-	}
-	
-	FILE* file = fopen(name.c_str(), "w");
-	
-	if (!file) {
-		Log(ERROR) << "Output file " << name << " could not be opened\n";
-		
-		curl_easy_cleanup(curl);
-		return;
-	}
-	
-	curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
 #ifndef WIN32
-	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, NULL);
+	// Use wget
+	string command = "wget " + url + " -O " + name;
+	
+	if (system(command.c_str())) {}
 #endif
-	curl_easy_setopt(curl, CURLOPT_WRITEDATA, file);
-	
-	CURLcode result = curl_easy_perform(curl);
-	
-	if (result != CURLE_OK)
-		Log(WARNING) << "Transfer failed\n";
-
-	curl_easy_cleanup(curl);
-	fclose(file);
 }
-#endif
 
 bool IO::isDirectory(const string& path) {
 	struct stat stats;
