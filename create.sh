@@ -20,13 +20,18 @@ else
 	if [ $1 = "clean" ]; then
 		build clean
 	elif [ $1 = "rel_bin" ]; then
+		./clean.sh
+		
 		# create linux client
-		./create.sh clean
+		mkdir build; cd build
+		cmake ..
+		make -j 4
 		
 		if [ $? -ne 0 ]; then
 			exit 1
 		fi
 		
+		cd ../
 		mkdir -p rel_bin/linux/
 		cp bin/* rel_bin/linux/
 		cd rel_bin/linux/
