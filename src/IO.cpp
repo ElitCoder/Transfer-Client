@@ -12,12 +12,15 @@
 using namespace std;
 
 void IO::download(const string& url, const string& name) {
-#ifndef WIN32
+#ifdef WIN32
+	// Use wget alias for Powershell
+	string command = "start /wait powershell.exe wget " + url + " -OutFile " + name;	
+#else
 	// Use wget
 	string command = "wget " + url + " -O " + name;
-	
-	if (system(command.c_str())) {}
 #endif
+
+	if (system(command.c_str())) {}
 }
 
 bool IO::isDirectory(const string& path) {

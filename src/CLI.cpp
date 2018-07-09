@@ -437,7 +437,12 @@ void CLI::start() {
 	
 	// Remove old update files if they exist
 	remove("client.zip");
+	
+#ifdef WIN32
+	remove("update.exe");
+#else
 	remove("update.sh");
+#endif
 	
 	// Register at Server
 	Base::network().send(PacketCreator::initialize(g_protocol_standard));
@@ -457,18 +462,18 @@ void CLI::start() {
 			auto url_script = packet.getString();
 			auto url_windows = packet.getString();
 			
-#ifdef WIN32
-			Log(ERROR) << "Auto-updating client is not available for Windows, please download the new binaries\n";
-			Log(INFORMATION) << "New binaries can be found at " << url_windows << "\n";
-#else
 			Log(INFORMATION) << "Initiating auto-update\n";
+			Log(INFORMATION) << "Downloading new binaries\n";
+
+#ifdef WIN32
+			IO::download(url_windows, "client.zip");
+#else
 			IO::download(url, "client.zip");
 			IO::download(url_script, "update.sh");
 			
 			// Make update script executable
 			chmod("update.sh", 0755);
 			
-			// Start update script
 			if (system("./update.sh")) {}
 #endif
 		}
