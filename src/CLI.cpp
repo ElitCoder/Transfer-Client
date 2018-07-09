@@ -437,10 +437,7 @@ void CLI::start() {
 	
 	// Remove old update files if they exist
 	remove("client.zip");
-	
-#ifdef WIN32
-	remove("update.exe");
-#else
+#ifndef WIN32
 	remove("update.sh");
 #endif
 	
@@ -461,19 +458,24 @@ void CLI::start() {
 			auto url = packet.getString();
 			auto url_script = packet.getString();
 			auto url_windows = packet.getString();
-			
-			Log(INFORMATION) << "Initiating auto-update\n";
-			Log(INFORMATION) << "Downloading new binaries\n";
 
+			Log(INFORMATION) << "Downloading new binaries\n";
+			
 #ifdef WIN32
 			IO::download(url_windows, "client.zip");
+			
+			Log(INFORMATION) << "Auto-update for Windows is not available for now, the new binaries are in client.zip\n";
+			Log(INFORMATION) << "If the download fail due to Powershell being below version 3.0, the URL is " << url_windows << endl;
 #else
 			IO::download(url, "client.zip");
 			IO::download(url_script, "update.sh");
 			
+			Log(INFORMATION) << "Initiating auto-update\n";
+			
 			// Make update script executable
 			chmod("update.sh", 0755);
 			
+			// Don't need to call it in background since it's possible to overwrite running files
 			if (system("./update.sh")) {}
 #endif
 		}
