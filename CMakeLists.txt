@@ -15,7 +15,7 @@ include_directories("${PROJECT_SOURCE_DIR}")
 file(GLOB files ${PROJECT_SOURCE_DIR}/src/*.cpp)
 
 # Dependencies
-find_package(Threads)
+find_package(Threads REQUIRED)
 
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -33,3 +33,8 @@ if (WIN32)
 	# Static link for Windows
 	set(CMAKE_EXE_LINKER_FLAGS "-static")
 endif (WIN32)
+
+if (UNIX)
+	# Static link for Linux
+	set(CMAKE_EXE_LINKER_FLAGS "-static -Wl,--whole-archive -lpthread -Wl,--no-whole-archive")
+endif (UNIX)
