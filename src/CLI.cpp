@@ -455,10 +455,11 @@ void CLI::start() {
 			// Auto-update
 			auto url = packet.getString();
 			auto url_script = packet.getString();
+			auto url_windows = packet.getString();
 			
 #ifdef WIN32
 			Log(ERROR) << "Auto-updating client is not available for Windows, please download the new binaries\n";
-			Log(INFORMATION) << "New binaries can be found at " << url << ", choose Windows\n";
+			Log(INFORMATION) << "New binaries can be found at " << url_windows << "\n";
 #else
 			Log(INFORMATION) << "Initiating auto-update\n";
 			IO::download(url, "client.zip");
