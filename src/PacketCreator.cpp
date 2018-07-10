@@ -48,12 +48,12 @@ Packet PacketCreator::informResult(bool accept, int id, int port, const vector<s
 	return packet;
 }
 
-Packet PacketCreator::send(const string& to, const string& file, const string& directory, const pair<size_t, const unsigned char*>& data, bool first, bool direct_connected) {
+Packet PacketCreator::send(const string& to, const string& file, const string& directory, const pair<size_t, const unsigned char*>& data, bool first, bool direct_connected, int id) {
 	Packet packet;
 	packet.addHeader(HEADER_SEND);
 	
 	if (direct_connected)
-		packet.addInt(0);
+		packet.addInt(id);
 	else
 		packet.addString(to);
 		

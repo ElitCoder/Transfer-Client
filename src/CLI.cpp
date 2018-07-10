@@ -64,7 +64,7 @@ const char* inet_ntop(int af, const void* src, char* dst, int cnt) {
 	
     if (WSAAddressToString((struct sockaddr*)&srcaddr, sizeof(struct sockaddr_in), 0, dst, (LPDWORD) &cnt) != 0) {
         DWORD rv = WSAGetLastError();
-        printf("WSAAddressToString() : %d\n",rv);
+        printf("WSAAddressToString() : %lu\n",rv);
 		
         return NULL;
     }
@@ -237,6 +237,8 @@ static void sendFile(const string& to, string file, string directory, string bas
 	auto port = answer.getInt();
 	auto own_id = answer.getInt();
 	
+	Log(DEBUG) << "Local ID " << own_id << endl;
+	
 	vector<string> remote_addresses;
 	shared_ptr<NetworkCommunication> direct_connection = nullptr;
 	
@@ -379,7 +381,7 @@ static void sendFile(const string& to, string file, string directory, string bas
 	}
 
 	// Tell the receiver that we're done
-	use_network_->send(PacketCreator::send(to, file, directory, { 0, nullptr }, false, direct_connected));
+	use_network_->send(PacketCreator::send(to, file, directory, { 0, nullptr }, false, direct_connected, own_id));
 		
 	answer = Base::cli().waitForAnswer();
 	answer.getInt();
@@ -688,7 +690,7 @@ void CLI::handleSend() {
 		file = Base::config().get<string>("output_folder", "") + "/" + file;
 		
 	if (bytes.first == 0) {
-		Log(DEBUG) << "Removing from cache\n";
+		Log(DEBUG) << "Removing from cache, sending ID " << id << "\n";
 		
 		// Remove from cache
 		auto iterator = file_streams_.find(file);
@@ -752,7 +754,7 @@ void CLI::handleSend() {
 	shared_ptr<ofstream> file_stream;
 	
 	if (first) {
-		Log(DEBUG) << "Removing existing files and preparing stream\n";
+		Log(DEBUG) << "Removing existing files and preparing stream for ID " << id << " and file " << file << "\n";
 		
 		// Create folder if it does not exist
 		if (Base::config().has("output_folder"))
