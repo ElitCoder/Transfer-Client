@@ -235,6 +235,7 @@ static void sendFile(const string& to, string file, string directory, string bas
 	auto try_direct = answer.getBool();
 	auto num_addresses = answer.getInt();
 	auto port = answer.getInt();
+	auto own_id = answer.getInt();
 	
 	vector<string> remote_addresses;
 	shared_ptr<NetworkCommunication> direct_connection = nullptr;
@@ -309,7 +310,7 @@ static void sendFile(const string& to, string file, string directory, string bas
 	thread direct_packet_thread_;
 	
 	if (direct_connected)
-		direct_packet_thread_ = thread(packetThread, ref(*direct_connection), "", false);
+		direct_packet_thread_ = thread(packetThread, ref(*direct_connection), -1, false);
 	
 	Log(DEBUG) << "Sending the file " << base << " + " << directory << " + " << file << endl;
 	Log(DEBUG) << "File size " << size << " bytes\n";
@@ -327,7 +328,7 @@ static void sendFile(const string& to, string file, string directory, string bas
 		
 		// Bypass server changes to the packets
 		if (direct_connected)
-			packet.addInt(0);
+			packet.addInt(own_id);
 		else
 			packet.addString(to);
 
@@ -394,15 +395,9 @@ static void sendFile(const string& to, string file, string directory, string bas
 	Log(DEBUG) << "Elapsed time: " << elapsed_time << " seconds\n";
 	Log(DEBUG) << "Speed: " << (static_cast<double>(size) / 1024 / 1024) / elapsed_time << " MB/s\n";
 	
-	//Log(NONE) << endl;
-	
 	if (direct_connected) {
-		//Log(DEBUG) << "Killing direct connection network\n";
 		direct_connection->kill();
 		direct_packet_thread_.join();
-		//Log(DEBUG) << "Killed network\n";
-		
-		//Log(NONE) << endl;
 	}
 }
 
@@ -462,10 +457,11 @@ void CLI::start() {
 			Log(INFORMATION) << "Downloading new binaries\n";
 			
 #ifdef WIN32
+			Log(INFORMATION) << "If the download fail due to Powershell being below version 3.0, the URL is " << url_windows << endl;
+
 			IO::download(url_windows, "client.zip");
 			
 			Log(INFORMATION) << "Auto-update for Windows is not available for now, the new binaries are in client.zip\n";
-			Log(INFORMATION) << "If the download fail due to Powershell being below version 3.0, the URL is " << url_windows << endl;
 #else
 			IO::download(url, "client.zip");
 			IO::download(url_script, "update.sh");
@@ -534,13 +530,13 @@ Packet CLI::waitForAnswer() {
 	return packet;
 }
 
-void CLI::removeOldNetworks(const string& name) {
+void CLI::removeOldNetworks(int id) {
 	lock_guard<mutex> lock(old_networks_mutex_);
 	
 	while (!old_networks_.empty()) {
 		auto& network = old_networks_.front();
 		
-		if (network.file_ == name)
+		if (network.id_ == id)
 			break;
 			
 		// Kill
@@ -637,16 +633,6 @@ void CLI::handleInformResult() {
 	auto directory = packet_->getString();
 	auto direct_possible = packet_->getBool();
 	
-	// Make sure the same file is not being written right now
-	for (auto& network : networks_) {
-		if (network.file_ == (directory + file)) {
-			Log(ERROR) << "The file " << (directory + file) << " is already being written\n";
-			Base::network().send(PacketCreator::informResult(false /* accept or decline */, id, 0, {}));
-			
-			return;
-		}
-	}
-	
 	// Return a list of available local IPs to see if the clients might be on the same network
 	auto addresses = getIPAddresses();
 	int port = 30500;
@@ -680,10 +666,8 @@ void CLI::handleInformResult() {
 	if (Base::config().get<bool>("direct", true) && direct_possible) {
 		auto& network = networks_.back().network_;
 				
-		networks_.back().file_stream_name_ = "";
 		networks_.back().id_ = id;
-		networks_.back().file_ = directory + file;
-		networks_.back().packet_thread_ = make_shared<thread>(packetThread, ref(*network), networks_.back().file_, true);
+		networks_.back().packet_thread_ = make_shared<thread>(packetThread, ref(*network), networks_.back().id_, true);
 	}
 }
 
@@ -737,20 +721,29 @@ void CLI::handleSend() {
 		
 		// Kill network if it's sent over direct connection
 		for (auto& network : networks_) {
-			if (network.file_ == original_file) {
-				Log(DEBUG) << "Kill direct connection network " << original_file << endl;
+			if (network.id_ == id) {
+				Log(DEBUG) << "Kill direct connection network " << id << endl;
 				
 				network.network_->kill(true);
 				
 				lock_guard<mutex> lock(old_networks_mutex_);
 				old_networks_.push_back(network);
 				
-				networks_.erase(remove_if(networks_.begin(), networks_.end(), [&original_file] (auto& element) {
-					return element.file_ == original_file;
+				networks_.erase(remove_if(networks_.begin(), networks_.end(), [&id] (auto& element) {
+					return element.id_ == id;
 				}), networks_.end());
 				
 				break;
 			}
+		}
+		
+		// Remove from file_id_connections_
+		auto id_iterator = file_id_connections_.find(id);
+		
+		if (id_iterator != file_id_connections_.end()) {
+			auto& files = id_iterator->second;
+			
+			files.erase(remove_if(files.begin(), files.end(), [&file] (auto& element) { return file == element; }), files.end());
 		}
 		
 		return;
@@ -786,13 +779,17 @@ void CLI::handleSend() {
 		// Add file stream to cache
 		file_streams_[file] = stream_pointer;
 		
-		// Set file stream name to network if it's direct connected
-		for (auto& network : networks_) {
-			if (network.file_ == original_file) {
-				network.file_stream_name_ = file;
-				
-				break;
-			}
+		// Add file to file_id_connections_
+		auto id_iterator = file_id_connections_.find(id);
+		
+		if (id_iterator == file_id_connections_.end()) {
+			// Add vector with file
+			file_id_connections_[id] = vector<string>({ file });
+			
+			Log(DEBUG) << "Add file stream with ID " << id << " and file " << file << endl;
+		} else {
+			// Add to vector
+			file_id_connections_[id].push_back(file);
 		}
 	}
 	
@@ -842,7 +839,7 @@ void CLI::handleClientDisconnect() {
 		if (id != network.id_)
 			return false;
 		
-		Log(DEBUG) << "Disconnecting user " << id << " with network " << network.file_ << endl;
+		Log(DEBUG) << "Disconnecting user " << id << endl;
 		
 		// We have a network connected to id
 		network.network_->kill();
@@ -850,17 +847,35 @@ void CLI::handleClientDisconnect() {
 		lock_guard<mutex> lock(old_networks_mutex_);
 		old_networks_.push_back(network);
 		
-		// Close file descriptor with name file_stream_name_
-		auto iterator = file_streams_.find(network.file_stream_name_);
-		
-		if (iterator != file_streams_.end()) {
-			iterator->second->close();
-			
-			file_streams_.erase(network.file_stream_name_);
-		} else {
-			Log(DEBUG) << "Could not find file stream with the disconnecting ID, possibly the transfer was not initiated\n";
-		}
-		
 		return true;
 	}), networks_.end());
+	
+	// Iterate through file_id_connections_ to close all streams associated with this ID
+	auto iterator = file_id_connections_.find(id);
+	
+	if (iterator == file_id_connections_.end()) {
+		Log(DEBUG) << "No files associated with " << id << endl;
+		
+		return;
+	}
+		
+	for (auto& file : iterator->second) {
+		auto stream_iterator = file_streams_.find(file);
+		
+		if (stream_iterator == file_streams_.end()) {
+			Log(WARNING) << "Can't find file stream " << file << endl;
+			
+			continue;
+		}
+		
+		Log(DEBUG) << "Flushing and erasing file " << file << endl;
+		
+		stream_iterator->second->flush();
+		stream_iterator->second->close();
+		
+		file_streams_.erase(file);
+	}
+	
+	// Remove ID from map
+	file_id_connections_.erase(id);
 }

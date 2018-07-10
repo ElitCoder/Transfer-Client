@@ -14,7 +14,7 @@ using namespace std;
 constexpr auto quick_exit = _exit; // mingw32 does not support quick_exit for now
 #endif
 
-string g_protocol_standard = "a8";
+string g_protocol_standard = "a9";
 static mutex g_cli_sync_;
 
 static void printStart() {
@@ -22,7 +22,7 @@ static void printStart() {
 	Log(NONE) << "Protocol standard: " << g_protocol_standard << "\n";
 }
 
-void packetThread(NetworkCommunication& network, string name, bool do_accept) {
+void packetThread(NetworkCommunication& network, int id, bool do_accept) {
 	if (do_accept)
 		network.acceptConnection();
 
@@ -35,7 +35,7 @@ void packetThread(NetworkCommunication& network, string name, bool do_accept) {
 			break;
 			
 		// Remove old networks if there are any
-		Base::cli().removeOldNetworks(name);
+		Base::cli().removeOldNetworks(id);
 
 		// Protect CLI using single threading since there might be multiple packet threads
 		g_cli_sync_.lock();
@@ -57,7 +57,7 @@ static void process() {
 	Base::network().start(hostname, port);
 	
 	auto& network = Base::network();
-	thread network_thread = thread(packetThread, ref(network), "", false);
+	thread network_thread = thread(packetThread, ref(network), -1, false);
 	
 	// Run CLI
 	Base::cli().start();
@@ -65,7 +65,7 @@ static void process() {
 	network_thread.join();
 	
 	// Kill any remaining old networks
-	Base::cli().removeOldNetworks("");
+	Base::cli().removeOldNetworks(-1);
 }
 
 void handler(int unused) {

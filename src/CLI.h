@@ -23,9 +23,6 @@ struct HostNetwork {
 	std::shared_ptr<std::thread> packet_thread_;
 	
 	int id_;
-	std::string file_;
-	
-	std::string file_stream_name_;
 };
 
 class CLI {
@@ -35,7 +32,7 @@ public:
 	
 	Packet waitForAnswer();
 	
-	void removeOldNetworks(const std::string& name);
+	void removeOldNetworks(int id);
 	
 private:
 	void handleJoin();
@@ -57,6 +54,7 @@ private:
 	std::shared_ptr<Packet> answer_packet_ = nullptr;
 	
 	std::unordered_map<std::string, std::shared_ptr<std::ofstream>> file_streams_;
+	std::unordered_map<int, std::vector<std::string>> file_id_connections_;
 	
 	std::vector<HostNetwork> networks_;
 	
@@ -70,6 +68,6 @@ private:
 };
 
 // Start different packetThreads for direct connections
-void packetThread(NetworkCommunication& network, std::string name, bool do_accept);
+void packetThread(NetworkCommunication& network, int id, bool do_accept);
 
 #endif
