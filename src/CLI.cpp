@@ -347,6 +347,30 @@ static void sendFile(const string& to, string file, string directory, string bas
 		file_stream.read((char*)data_pointer, read_amount);
 		auto actually_read = file_stream.gcount();
 		
+		auto fail = file_stream.fail();
+		auto bad = file_stream.bad();
+		
+		if (actually_read <= 0 || fail || bad) {
+			// Something went wrong during read
+			Log(WARNING) << "Something went wrong during reading the file " << full_path << "\n";
+			Log(DEBUG) << "Attempting to re-open the file..\n";
+			
+			file_stream.close();
+			file_stream.open(full_path, ios_base::binary);
+			
+			if (!file_stream.is_open()) {
+				Log(DEBUG) << "Failed to open file again, ignoring this file\n";
+				
+				return;
+			} else {
+				Log(DEBUG) << "Successfully re-opened the file, continue file transfer\n";
+				
+				// Move to actual read position and continue the loop
+				file_stream.seekg(i);
+				continue;
+			}
+		}
+		
 		if (actually_read != (long)read_amount)
 			data->resize(old_size + actually_read + 4);
 			
