@@ -33,8 +33,9 @@ public:
 	Packet waitForAnswer();
 	
 	void removeOldNetworks(int id);
-	
 	void shutdown();
+	
+	void sendFile(const std::string& to, std::string file, std::string directory, std::string base);
 	
 private:
 	void handleJoin();
@@ -67,6 +68,13 @@ private:
 	
 	// What direct connected IPs was successful
 	std::unordered_map<std::string, bool> connect_results_;
+	
+	// Active direct connection to the receiving side, to avoid re-opening the connection for every file
+	std::shared_ptr<NetworkCommunication> active_direct_connection_ = nullptr;
+	std::shared_ptr<std::thread> active_packet_thread_ = nullptr;
+	
+	// Our client ID from the server
+	int client_id_ = -1;
 };
 
 // Start different packetThreads for direct connections

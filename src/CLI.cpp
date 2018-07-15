@@ -175,7 +175,7 @@ static void sortMostLikelyIP(const vector<string>& own_ips, vector<string>& remo
 	});
 }
 
-static void sendFile(const string& to, string file, string directory, string base, unordered_map<string, bool>& connect_results) {
+void CLI::sendFile(const string& to, string file, string directory, string base) {
 	string full_path = base + directory + file;
 	
 	if (directory.empty())
@@ -214,90 +214,94 @@ static void sendFile(const string& to, string file, string directory, string bas
 			string path = recursive_file;
 			string new_base = "";
 						
-			sendFile(to, path, directory + file + "/", base, connect_results);
+			sendFile(to, path, directory + file + "/", base);
 		}
 		
 		// We're done with this file
 		return;
 	}
 	
-	// Inform target of file transfer
-	Base::network().send(PacketCreator::inform(to, file, directory, Base::config().get<bool>("direct", true)));
-	auto answer = Base::cli().waitForAnswer();
-	auto accepted = answer.getBool();
-	
-	if (!accepted) {
-		Log(ERROR) << "Receiving side did not accept the file transfer or is not connected\n";
+	// See if we already have an active connection to "to"
+	if (active_direct_connection_ != nullptr) {
+		Log(DEBUG) << "Using already active direct connection to send files\n";
+	} else {
+		// Inform target of file transfer
+		Base::network().send(PacketCreator::inform(to, file, directory, Base::config().get<bool>("direct", true)));
+		auto answer = Base::cli().waitForAnswer();
+		auto accepted = answer.getBool();
 		
-		return;
-	}
-	
-	auto try_direct = answer.getBool();
-	auto num_addresses = answer.getInt();
-	auto port = answer.getInt();
-	auto own_id = answer.getInt();
-	
-	Log(DEBUG) << "Local ID " << own_id << endl;
-	
-	vector<string> remote_addresses;
-	shared_ptr<NetworkCommunication> direct_connection = nullptr;
-	
-	Log(DEBUG) << "Direct connection is " << (try_direct ? "enabled" : "disabled") << endl;
-	
-	if (try_direct) {
-		Log(DEBUG) << "Receiving client is waiting at port " << port << endl;
-				
-		for (int i = 0; i < num_addresses; i++) {
-			auto ip = answer.getString();
-			remote_addresses.push_back(ip);
+		if (!accepted) {
+			Log(ERROR) << "Receiving side did not accept the file transfer or is not connected\n";
 			
-			Log(DEBUG) << "Remote address " << ip << endl;
+			return;
 		}
 		
-		// Sort local IPs based on most likely to be connected
-		sortMostLikelyIP(getIPAddresses(), remote_addresses);
+		auto try_direct = answer.getBool();
+		auto num_addresses = answer.getInt();
+		auto port = answer.getInt();
+		client_id_ = answer.getInt();
 		
-		for (size_t i = 0; i < remote_addresses.size(); i++) {
-			auto& ip = remote_addresses.at(i);
-			
-			// See if this IP is unreachable
-			auto unreachable = connect_results.find(ip);
-			
-			if (unreachable != connect_results.end()) {
-				Log(DEBUG) << "Skipping IP " << ip << endl;
+		Log(DEBUG) << "Local ID " << client_id_ << endl;
+		
+		vector<string> remote_addresses;
+		
+		Log(DEBUG) << "Direct connection is " << (try_direct ? "enabled" : "disabled") << endl;
+		
+		if (try_direct) {
+			Log(DEBUG) << "Receiving client is waiting at port " << port << endl;
+					
+			for (int i = 0; i < num_addresses; i++) {
+				auto ip = answer.getString();
+				remote_addresses.push_back(ip);
 				
-				continue;
+				Log(DEBUG) << "Remote address " << ip << endl;
 			}
 			
-			Log(DEBUG) << "Trying " << ip << endl;
+			// Sort local IPs based on most likely to be connected
+			sortMostLikelyIP(getIPAddresses(), remote_addresses);
 			
-			direct_connection = make_shared<NetworkCommunication>();
-			
-			if (direct_connection->start(ip, port, true)) {
-				// Works
-				break;
-			} else {
-				direct_connection = nullptr;
+			for (size_t i = 0; i < remote_addresses.size(); i++) {
+				auto& ip = remote_addresses.at(i);
 				
-				// Add to known IPs to fail
-				connect_results[ip] = false;
+				// See if this IP is unreachable
+				auto unreachable = connect_results_.find(ip);
+				
+				if (unreachable != connect_results_.end()) {
+					Log(DEBUG) << "Skipping IP " << ip << endl;
+					
+					continue;
+				}
+				
+				Log(DEBUG) << "Trying " << ip << endl;
+				
+				active_direct_connection_ = make_shared<NetworkCommunication>();
+				
+				if (active_direct_connection_->start(ip, port, true)) {
+					// Start packet thread and save it in CLI
+					active_packet_thread_ = make_shared<thread>(packetThread, ref(*active_direct_connection_), -1, false);
+					
+					// Works
+					break;
+				} else {
+					active_direct_connection_ = nullptr;
+					
+					// Add to known IPs to fail
+					connect_results_[ip] = false;
+				}
 			}
 		}
 	}
-	
+
 	// What network to use?
 	NetworkCommunication* use_network_;
 	bool direct_connected = false;
 	
-	if (direct_connection == nullptr) {
+	if (active_direct_connection_ == nullptr) {
 		// Use relay, no direct connection succeeded
 		use_network_ = &Base::network();
-		
-		if (try_direct)
-			Log(WARNING) << "Direct connection was not successful, reverting to relay\n";
 	} else {
 		// Use direct connection
-		use_network_ = direct_connection.get();
+		use_network_ = active_direct_connection_.get();
 		direct_connected = true;
 		
 		// Set terminate on network kill
@@ -311,12 +315,7 @@ static void sendFile(const string& to, string file, string directory, string bas
 	} catch (...) {
 		return;
 	}
-	
-	thread direct_packet_thread_;
-	
-	if (direct_connected)
-		direct_packet_thread_ = thread(packetThread, ref(*direct_connection), -1, false);
-	
+
 	Log(DEBUG) << "Sending the file " << base << " + " << directory << " + " << file << endl;
 	Log(DEBUG) << "File size " << size << " bytes\n";
 	
@@ -331,9 +330,12 @@ static void sendFile(const string& to, string file, string directory, string bas
 		Packet packet;
 		packet.addHeader(HEADER_SEND);
 		
+		if (client_id_ < 0) 
+			Log(WARNING) << "Trying to send packet as client " << client_id_ << endl;
+
 		// Bypass server changes to the packets
 		if (direct_connected)
-			packet.addInt(own_id);
+			packet.addInt(client_id_);
 		else
 			packet.addString(to);
 
@@ -390,9 +392,9 @@ static void sendFile(const string& to, string file, string directory, string bas
 		use_network_->send(packet);
 		i += actually_read;
 				
-		answer = Base::cli().waitForAnswer();
+		auto answer = Base::cli().waitForAnswer();
 		answer.getInt();
-		accepted = answer.getBool();
+		auto accepted = answer.getBool();
 		
 		if (!accepted) {
 			Log(WARNING) << "Something went wrong during file transfer\n";
@@ -408,11 +410,11 @@ static void sendFile(const string& to, string file, string directory, string bas
 	}
 
 	// Tell the receiver that we're done
-	use_network_->send(PacketCreator::send(to, file, directory, { 0, nullptr }, false, direct_connected, own_id));
+	use_network_->send(PacketCreator::send(to, file, directory, { 0, nullptr }, false, direct_connected, client_id_));
 		
-	answer = Base::cli().waitForAnswer();
+	auto answer = Base::cli().waitForAnswer();
 	answer.getInt();
-	accepted = answer.getBool();
+	auto accepted = answer.getBool();
 	
 	auto elapsed_time = timer.restart();
 	
@@ -423,14 +425,9 @@ static void sendFile(const string& to, string file, string directory, string bas
 		
 	Log(DEBUG) << "Elapsed time: " << elapsed_time << " seconds\n";
 	Log(DEBUG) << "Speed: " << (static_cast<double>(size) / 1024 / 1024) / elapsed_time << " MB/s\n";
-	
-	if (direct_connected) {
-		direct_connection->kill();
-		direct_packet_thread_.join();
-	}
 }
 
-static void sendFiles(const string& to, unordered_map<string, bool>& connect_results) {
+static void sendFiles(const string& to) {
 	auto& files = Base::parameter().get("-s");
 	
 	for (auto& file : files) {
@@ -443,7 +440,7 @@ static void sendFiles(const string& to, unordered_map<string, bool>& connect_res
 		string base = "";
 		splitBaseFile(file_copy, base, file_copy);
 		
-		sendFile(to, file_copy, "", base, connect_results);
+		Base::cli().sendFile(to, file_copy, "", base);
 	}
 }
 
@@ -540,7 +537,7 @@ void CLI::start() {
 		
 		// To whom?
 		string to = Base::parameter().get("-t").front();
-		sendFiles(to, connect_results_);
+		sendFiles(to);
 			
 		quick_exit(0);
 	}
@@ -762,24 +759,6 @@ void CLI::handleSend() {
 			file_streams_.erase(file);
 			
 			Log(DEBUG) << "Done\n";
-		}
-		
-		// Kill network if it's sent over direct connection
-		for (auto& network : networks_) {
-			if (network.id_ == id) {
-				Log(DEBUG) << "Kill direct connection network " << id << endl;
-				
-				network.network_->kill(true);
-				
-				lock_guard<mutex> lock(old_networks_mutex_);
-				old_networks_.push_back(network);
-				
-				networks_.erase(remove_if(networks_.begin(), networks_.end(), [&id] (auto& element) {
-					return element.id_ == id;
-				}), networks_.end());
-				
-				break;
-			}
 		}
 		
 		// Remove from file_id_connections_

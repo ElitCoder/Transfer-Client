@@ -14,7 +14,7 @@ using namespace std;
 constexpr auto quick_exit = _exit; // mingw32 does not support quick_exit for now
 #endif
 
-string g_protocol_standard = "a9";
+string g_protocol_standard = "a10";
 static mutex g_cli_sync_;
 
 static void printStart() {
