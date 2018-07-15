@@ -53,6 +53,8 @@ public:
     
     EventPipe& getPipe();
     void kill(bool safe = false);
+    
+    void setTerminateOnKill(bool status);
 
 private:
     bool hasFullPartialPacket() const;
@@ -80,6 +82,8 @@ private:
     
     std::atomic<bool> shutdown_;
     std::shared_ptr<EventPipe> pipe_;
+    
+    bool terminate_on_kill_ = false;
 };
 
 #endif

@@ -64,6 +64,9 @@ static void process() {
 	
 	network_thread.join();
 	
+	// Kill all networks
+	Base::cli().shutdown();
+	
 	// Kill any remaining old networks
 	Base::cli().removeOldNetworks(-1);
 }

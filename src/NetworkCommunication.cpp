@@ -31,6 +31,10 @@
 #pragma comment(lib, "ws2_32.lib")
 #endif
 
+#ifdef WIN32
+constexpr auto quick_exit = _exit; // mingw32 does not support quick_exit for now
+#endif
+
 using namespace std;
 
 static bool hostConnection(int& server_socket, unsigned short port) {
@@ -476,6 +480,13 @@ void NetworkCommunication::kill(bool safe) {
 	if (shutdown_)
 		return;
 		
+	// Should we just terminate instead?
+	if (terminate_on_kill_) {
+		Log(DEBUG) << "Terminating since network died\n";
+		
+		quick_exit(-1);
+	}
+		
 	// Safe shutdown - wait for all packets to be sent before exiting
 	if (safe) {
 		unique_lock<mutex> lock(outgoing_mutex_);
@@ -494,6 +505,10 @@ void NetworkCommunication::kill(bool safe) {
 
 EventPipe& NetworkCommunication::getPipe() {
 	return *pipe_;
+}
+
+void NetworkCommunication::setTerminateOnKill(bool status) {
+	terminate_on_kill_ = status;
 }
 
 /*

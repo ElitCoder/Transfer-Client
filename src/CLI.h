@@ -34,6 +34,8 @@ public:
 	
 	void removeOldNetworks(int id);
 	
+	void shutdown();
+	
 private:
 	void handleJoin();
 	void handleAvailable();
@@ -56,7 +58,7 @@ private:
 	std::unordered_map<std::string, std::shared_ptr<std::ofstream>> file_streams_;
 	std::unordered_map<int, std::vector<std::string>> file_id_connections_;
 	
-	std::vector<HostNetwork> networks_;
+	std::list<HostNetwork> networks_;
 	
 	// Packet threads to be killed, but couldn't since they were processing the packet which killed them
 	// Needs to be joined by another thread

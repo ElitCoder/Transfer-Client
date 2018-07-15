@@ -299,6 +299,9 @@ static void sendFile(const string& to, string file, string directory, string bas
 		// Use direct connection
 		use_network_ = direct_connection.get();
 		direct_connected = true;
+		
+		// Set terminate on network kill
+		use_network_->setTerminateOnKill(true);
 	}
 	
 	size_t size;
@@ -532,6 +535,9 @@ void CLI::start() {
 			quick_exit(-1);
 		}
 		
+		// Set terminate on network kill
+		Base::network().setTerminateOnKill(true);
+		
 		// To whom?
 		string to = Base::parameter().get("-t").front();
 		sendFiles(to, connect_results_);
@@ -573,6 +579,19 @@ void CLI::removeOldNetworks(int id) {
 				
 		// Erase
 		old_networks_.pop_front();
+	}
+}
+
+void CLI::shutdown() {
+	// Kill all existing networks before shutdown
+	
+	while (!networks_.empty()) {
+		auto& network = networks_.front();
+		
+		network.network_->kill(true);
+		network.packet_thread_->join();
+		
+		networks_.pop_front();
 	}
 }
 
