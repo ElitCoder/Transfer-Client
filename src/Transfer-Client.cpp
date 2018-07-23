@@ -93,6 +93,8 @@ int main(int argc, char** argv) {
 	printStart();
 	
 	Base::config().parse("config");
+	Base::config().parse("local_config", false);
+	
 	Base::parameter().set(argc, argv);
 	
 	process();

@@ -11,7 +11,7 @@
 
 class Config {
 public:
-	void parse(const std::string& filename);
+	void parse(const std::string& filename, bool empty = true);
 	void clear();
 	bool has(const std::string& key);
 	

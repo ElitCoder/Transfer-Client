@@ -22,7 +22,10 @@ static deque<string> getTokens(string input, char delimiter) {
 	return tokens;
 }
 
-void Config::parse(const string& filename) {
+void Config::parse(const string& filename, bool empty) {
+	if (empty)
+		configs_.clear();
+
 	ifstream file(filename);
 	
 	if (!file.is_open()) {
