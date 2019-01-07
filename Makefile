@@ -1,20 +1,29 @@
-CPP_FILES	:= $(wildcard src/*.cpp)
-OBJ_FILES	:= $(addprefix obj/,$(notdir $(CPP_FILES:.cpp=.o)))
-CC_FLAGS	:= -std=c++14 -Wall -Wextra -pedantic-errors
-#CC_FLAGS	+= -O3
-#CC_FLAGS	+= -g
-LD_LIBS		:= -lpthread
+NAME		:= Transfer-Client
 
-EXECUTABLE	:= bin/Transfer-Client
+OBJ_FOLDER	:= obj
+SRC_FOLDER	:= src
+BIN_FOLDER	:= bin
 
-$(EXECUTABLE): $(OBJ_FILES)
-	g++ $(LD_FLAGS) -o $@ $^ $(LD_LIBS)
+CPP_FILES	:= $(wildcard $(SRC_FOLDER)/*.cpp)
+OBJ_FILES	:= $(addprefix $(OBJ_FOLDER)/,$(notdir $(CPP_FILES:.cpp=.o)))
 
-obj/%.o: src/%.cpp
-	g++ $(CC_FLAGS) -c -o $@ $<
-	
+CXX_FLAGS	:= -std=c++14 -Wall -Wextra -pedantic-errors
+CXX_FLAGS	+= -g
+#CXX_FLAGS	+= -O3
+
+LDLIBS		:= -lpthread
+TARGET		:= $(BIN_FOLDER)/$(NAME)
+
+all: build
+
 clean:
-	rm -f obj/* $(EXECUTABLE)
+	rm -rf $(TARGET) $(OBJ_FOLDER)/*
 
-CC_FLAGS += -MMD
+build: $(OBJ_FILES)
+	$(CXX) $^ -o $(TARGET) $(LDLIBS)
+
+$(OBJ_FOLDER)/%.o: $(SRC_FOLDER)/%.cpp
+	$(CXX) $(CXX_FLAGS) -c -o $@ $<
+
+CXX_FLAGS += -MMD
 -include $(OBJFILES:.o=.d)
